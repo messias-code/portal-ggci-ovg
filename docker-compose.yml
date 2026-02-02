@@ -1,0 +1,19 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:15
+    container_name: ggci_db
+    environment:
+      POSTGRES_USER: 4dmin_db        # SEU NOVO USUÁRIO
+      POSTGRES_PASSWORD: 4dmin_db    # SUA NOVA SENHA
+      POSTGRES_DB: ggci_database     # SEU NOVO NOME DE BANCO
+    ports:
+      - "5433:5432"                  # MUDANÇA: Porta externa 5433 (Host) -> 5432 (Container)
+    volumes:
+      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - postgres_data:/var/lib/postgresql/data
+    restart: always
+
+volumes:
+  postgres_data:

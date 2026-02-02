@@ -1,0 +1,7 @@
+dash
+dash-bootstrap-components
+dash-iconify
+pandas
+SQLAlchemy
+psycopg2-binary
+werkzeug

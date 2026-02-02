@@ -1,0 +1,167 @@
+:root {
+    /* Fundo Roxo Profundo (Base Dark) */
+    --bg: #13111C;           
+    --bg-soft: #1E1B2E;      
+    
+    --text: #FFFFFF;
+    --muted: #B4B0C6;
+    --border: #36324A;
+    
+    /* CORES OVG */
+    --ovg-pink: #FF6B8B;
+    --ovg-purple: #8E44AD;
+    --ovg-yellow: #FFCE54;
+    --ovg-blue: #4FC1E9;
+    --ovg-green: #A0D468;
+    
+    --gradient-primary: linear-gradient(135deg, var(--ovg-pink), var(--ovg-purple));
+    --gradient-full: linear-gradient(90deg, var(--ovg-pink), var(--ovg-purple), var(--ovg-yellow), var(--ovg-blue));
+}
+
+body {
+    background-color: var(--bg);
+    color: var(--text);
+    /* ALTERADO: Fonte nativa do sistema (Adeus pixels faltando!) */
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    -webkit-font-smoothing: antialiased; /* Suavização de fonte para ficar mais bonito */
+    margin: 0;
+}
+
+/* Container Principal */
+.main-container {
+    background-color: var(--bg-soft);
+    border-radius: 20px;
+    padding: 40px;
+    box-shadow: 0 15px 35px rgba(0, 0, 0, 0.4);
+    margin: auto;
+    border: 1px solid var(--border);
+    position: relative;
+    overflow: hidden;
+}
+
+.main-container::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 4px;
+    background: var(--gradient-full);
+}
+
+/* Tela de Login */
+.login-container {
+    height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: radial-gradient(circle at center, #2a2540 0%, var(--bg) 100%);
+}
+
+.login-box {
+    width: 100%;
+    max-width: 420px;
+    padding: 2.5rem !important;
+    border-radius: 24px;
+}
+
+.logo-img {
+    display: block;
+    margin: 0 auto 20px auto;
+    max-height: 90px;
+}
+
+/* Inputs Modernos */
+.form-control {
+    background-color: rgba(0, 0, 0, 0.2) !important;
+    border: 1px solid var(--border) !important;
+    color: var(--text) !important;
+    border-radius: 10px;
+    height: 48px;
+    font-size: 0.95rem; /* Fonte um pouco maior para leitura */
+}
+.form-control:focus {
+    border-color: var(--ovg-pink) !important;
+    box-shadow: 0 0 0 0.2rem rgba(255, 107, 139, 0.2) !important;
+    background-color: rgba(0, 0, 0, 0.3) !important;
+}
+
+/* Botão com Gradiente */
+.btn-login {
+    background: var(--gradient-primary);
+    color: white !important;
+    font-weight: 600; /* Peso da fonte ajustado */
+    border: none;
+    width: 100%;
+    padding: 12px;
+    border-radius: 10px;
+    margin-top: 15px;
+    transition: filter 0.3s ease;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-size: 1rem;
+}
+.btn-login:hover {
+    filter: brightness(1.15);
+    box-shadow: 0 5px 20px rgba(255, 107, 139, 0.4);
+}
+
+/* Cards Hover */
+.app-card-hover:hover {
+    transform: translateY(-5px);
+    background-color: rgba(255, 255, 255, 0.05) !important;
+}
+
+/* Tabelas */
+.table-dark {
+    --bs-table-bg: transparent;
+    border-color: var(--border);
+}
+.table thead th {
+    border-bottom: 2px solid var(--ovg-purple) !important;
+    color: var(--ovg-pink);
+    text-transform: uppercase;
+    font-size: 0.85rem;
+    letter-spacing: 0.5px;
+}
+
+/* Alertas */
+.alert-info {
+    background-color: rgba(142, 68, 173, 0.2) !important;
+    border-left: 4px solid var(--ovg-purple) !important;
+    border: none;
+    color: #e0c2ff !important;
+}
+
+/* Scrollbar Personalizada (Opcional, mas fica bonito) */
+::-webkit-scrollbar {
+    width: 10px;
+}
+::-webkit-scrollbar-track {
+    background: var(--bg);
+}
+::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 5px;
+}
+::-webkit-scrollbar-thumb:hover {
+    background: var(--ovg-purple);
+}
+
+/* --- BOTÕES DE NAVEGAÇÃO (Sair / Voltar) --- */
+.btn-nav {
+    padding: 05px 15px !important; /* Mais gordinho */
+    font-size: 0.9rem !important;  /* Texto legível */
+    border-radius: 50px !important; /* Formato Pílula */
+    border-width: 2px !important;   /* Borda mais visível */
+    display: inline-flex !important;
+    align-items: center;
+    gap: 07px;
+    font-weight: 700 !important;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    transition: all 0.3s ease;
+}
+
+.btn-nav:hover {
+    transform: translateY(-3px); /* Sobe um pouquinho ao passar o mouse */
+    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.4); /* Sombra para dar profundidade */
+}
