@@ -1,70 +1,97 @@
+"""
+=============================================================================
+MÓDULO DE BANCO DE DADOS
+=============================================================================
+Gerencia todas as interações com o PostgreSQL usando SQLAlchemy.
+Contém as regras de negócio de autenticação, bloqueio e gestão de usuários.
+"""
 from sqlalchemy import create_engine, text
 import pandas as pd
 from datetime import datetime, timedelta
 from .config import DATABASE_URL
-from .utils import validar_senha
+from .utils import validar_requisitos_senha
 
-# Cria o motor de conexão
+# Inicializa o motor de conexão global
 engine = create_engine(DATABASE_URL)
 
-def verificar_login(username, password):
+# =============================================================================
+# AUTENTICAÇÃO E SEGURANÇA
+# =============================================================================
+
+def autenticar_usuario(username, password):
     """
-    Verifica login com regras de bloqueio:
-    - 5 erros: espera 10 min
-    - +3 erros (total 8): espera +10 min
-    - +3 erros (total 11): Bloqueio Permanente
+    Valida as credenciais e aplica a política de bloqueio de conta.
+    
+    Política de Bloqueio:
+    - 5 erros consecutivos: Bloqueio temporário de 10 minutos.
+    - +3 erros (Total 8): Novo bloqueio de 10 minutos.
+    - +3 erros (Total 11): Bloqueio PERMANENTE (apenas admin desbloqueia).
+
+    Args:
+        username (str): Login do usuário.
+        password (str): Senha (hash ou plain, conforme implementação atual).
+
+    Returns:
+        tuple: (dados_usuario_dict, mensagem_erro_str)
+               Se sucesso, erro é None. Se falha, dados é None.
     """
     try:
-        # 1. Buscar usuário pelo username para checar status
-        query_user = text("SELECT * FROM usuarios WHERE username = :u")
+        # 1. Busca o usuário pelo login (independente da senha) para verificar status
+        query_busca = text("SELECT * FROM usuarios WHERE username = :u")
         with engine.connect() as conn:
-            user = conn.execute(query_user, {"u": username}).mappings().fetchone()
+            user = conn.execute(query_busca, {"u": username}).mappings().fetchone()
         
+        # Usuário inexistente
         if not user:
             return None, "Usuário ou senha incorretos."
 
-        # 2. Verificar Bloqueio Permanente
+        # 2. Verifica Bloqueio Permanente
         if user['bloqueado_permanente']:
-            return None, "Conta bloqueada permanentemente. Contate o administrador."
+            return None, "Conta bloqueada permanentemente por segurança. Contate o administrador."
 
-        # 3. Verificar Bloqueio Temporário
+        # 3. Verifica Bloqueio Temporário
         if user['bloqueio_ate'] and datetime.now() < user['bloqueio_ate']:
             tempo_restante = int((user['bloqueio_ate'] - datetime.now()).total_seconds() / 60) + 1
-            return None, f"Muitas tentativas. Tente novamente em {tempo_restante} minutos."
+            return None, f"Muitas tentativas falhas. Aguarde {tempo_restante} minutos."
 
-        # 4. Verificar Senha
+        # 4. Verifica a Senha
         if user['senha'] == password:
-            # SUCESSO: Zera contadores
+            # SUCESSO: Zera todos os contadores de erro e libera bloqueios antigos
             with engine.connect() as conn:
-                conn.execute(text("UPDATE usuarios SET tentativas_falhas = 0, bloqueio_ate = NULL WHERE id = :id"), {"id": user['id']})
+                conn.execute(text("""
+                    UPDATE usuarios 
+                    SET tentativas_falhas = 0, bloqueio_ate = NULL 
+                    WHERE id = :id
+                """), {"id": user['id']})
                 conn.commit()
             
-            # Retorna dados simplificados para sessão
-            return (user['id'], user['primeiro_nome'], user['ultimo_nome'], user['is_admin']), None
+            # Retorna tupla limpa com dados essenciais para a sessão
+            dados_sessao = (user['id'], user['primeiro_nome'], user['ultimo_nome'], user['is_admin'])
+            return dados_sessao, None
         
         else:
-            # FALHA: Incrementa erro e aplica regras
+            # FALHA: Incrementa contador e aplica regras de tempo
             novas_tentativas = (user['tentativas_falhas'] or 0) + 1
             bloqueio_time = None
             bloqueado_perm = False
             msg_extra = ""
 
-            # Regra 1: 5 erros -> 10 min
+            # Nível 1: 5 erros -> 10 min
             if novas_tentativas == 5:
                 bloqueio_time = datetime.now() + timedelta(minutes=10)
-                msg_extra = " Você errou 5 vezes. Aguarde 10 minutos."
+                msg_extra = " Você errou 5 vezes. A conta foi bloqueada por 10 minutos."
             
-            # Regra 2: 8 erros (5+3) -> +10 min
+            # Nível 2: 8 erros -> +10 min
             elif novas_tentativas == 8:
                 bloqueio_time = datetime.now() + timedelta(minutes=10)
-                msg_extra = " Você errou mais 3 vezes. Aguarde 10 minutos."
+                msg_extra = " Você errou mais 3 vezes. Aguarde mais 10 minutos."
 
-            # Regra 3: 11 erros (5+3+3) -> Bloqueio Permanente
+            # Nível 3: 11 erros -> Bloqueio Total
             elif novas_tentativas >= 11:
                 bloqueado_perm = True
-                msg_extra = " Conta bloqueada. Contate o admin."
+                msg_extra = " Conta bloqueada permanentemente. Solicite desbloqueio ao Admin."
 
-            # Atualiza banco
+            # Persiste o erro e o bloqueio no banco
             with engine.connect() as conn:
                 conn.execute(text("""
                     UPDATE usuarios 
@@ -81,112 +108,131 @@ def verificar_login(username, password):
             return None, f"Senha incorreta.{msg_extra}"
 
     except Exception as e:
-        print(f"Erro no login: {e}")
-        return None, "Erro interno no servidor."
+        print(f"[ERRO CRÍTICO] Falha na autenticação: {e}")
+        return None, "Erro interno no servidor de banco de dados."
 
-def carregar_usuarios():
+# =============================================================================
+# GESTÃO DE USUÁRIOS (CRUD)
+# =============================================================================
+
+def listar_todos_usuarios():
+    """Retorna um DataFrame com todos os usuários para o Dashboard Admin."""
     try:
-        # Adicionei as colunas novas para visualização do admin se quiser
-        df = pd.read_sql("SELECT id, primeiro_nome, ultimo_nome, username, email, is_admin, tentativas_falhas, bloqueado_permanente FROM usuarios ORDER BY id", engine)
+        query = "SELECT id, primeiro_nome, ultimo_nome, username, email, is_admin, tentativas_falhas, bloqueado_permanente FROM usuarios ORDER BY id"
+        df = pd.read_sql(query, engine)
         return df
     except Exception as e:
-        print(f"Erro ao carregar: {e}")
+        print(f"Erro ao listar usuários: {e}")
         return pd.DataFrame()
 
-def get_usuario_by_id(user_id):
+def buscar_usuario_por_id(user_id):
+    """Retorna um dicionário com os dados de um único usuário."""
     try:
         query = text("SELECT * FROM usuarios WHERE id = :id")
         with engine.connect() as conn:
             res = conn.execute(query, {"id": int(user_id)}).mappings().fetchone()
         return res
     except Exception as e:
-        print(f"Erro ao buscar usuário: {e}")
+        print(f"Erro ao buscar ID {user_id}: {e}")
         return None
 
-def salvar_usuario(primeiro, ultimo, email, senha, is_admin_val, user_id=None):
-    # Gera username automático
+def persistir_usuario(primeiro, ultimo, email, senha, is_admin_val, user_id=None):
+    """
+    Cria ou Atualiza um usuário.
+    Gera o username automaticamente (nome.sobrenome).
+    Se for atualização (user_id presente), zera bloqueios e falhas.
+    """
+    # Normalização básica
     username = f"{primeiro.lower()}.{ultimo.lower()}"
     
     if not email.endswith("@ovg.org.br"):
-        return False, "O e-mail deve terminar com @ovg.org.br"
+        return False, "O e-mail corporativo deve terminar com @ovg.org.br"
     
-    senha_final = senha
+    senha_para_salvar = senha
     
-    # --- MODO EDIÇÃO (ADMIN) ---
+    # --- FLUXO DE ATUALIZAÇÃO ---
     if user_id:
-        usuario_atual = get_usuario_by_id(user_id)
-        if not usuario_atual: return False, "Usuário não encontrado."
+        usuario_atual = buscar_usuario_por_id(user_id)
+        if not usuario_atual: return False, "Usuário não encontrado para edição."
         
+        # Se a senha vier vazia, mantemos a antiga. Se vier preenchida, validamos.
         if not senha:
-            senha_final = usuario_atual['senha']
+            senha_para_salvar = usuario_atual['senha']
         else:
-            erros_senha = validar_senha(senha)
+            erros_senha = validar_requisitos_senha(senha)
             if erros_senha: return False, " | ".join(erros_senha)
             
         try:
-            # Admin desbloqueia usuário ao editar (zera falhas)
-            query = text("""
+            # Ao editar, o Admin automaticamente desbloqueia a conta (zera falhas)
+            sql_update = text("""
                 UPDATE usuarios 
                 SET primeiro_nome=:p, ultimo_nome=:u, username=:user, email=:email, senha=:s, is_admin=:a,
                     tentativas_falhas=0, bloqueio_ate=NULL, bloqueado_permanente=FALSE
                 WHERE id=:id
             """)
             with engine.connect() as conn:
-                conn.execute(query, {
+                conn.execute(sql_update, {
                     "p": primeiro, "u": ultimo, "user": username, "email": email, 
-                    "s": senha_final, "a": is_admin_val, "id": int(user_id)
+                    "s": senha_para_salvar, "a": is_admin_val, "id": int(user_id)
                 })
                 conn.commit()
-            return True, "Usuário atualizado (e desbloqueado) com sucesso!"
+            return True, "Usuário atualizado e desbloqueado com sucesso!"
         except Exception as e:
-            return False, f"Erro ao atualizar: {str(e)}"
+            return False, f"Erro de banco ao atualizar: {str(e)}"
             
-    # --- MODO CRIAÇÃO ---
+    # --- FLUXO DE CRIAÇÃO ---
     else:
-        erros_senha = validar_senha(senha)
+        # Na criação, a senha é obrigatória e deve ser válida
+        erros_senha = validar_requisitos_senha(senha)
         if erros_senha: return False, " | ".join(erros_senha)
 
         try:
-            query = text("""
+            sql_insert = text("""
                 INSERT INTO usuarios (primeiro_nome, ultimo_nome, username, email, senha, is_admin)
                 VALUES (:p, :u, :user, :email, :senha, :admin)
             """)
             with engine.connect() as conn:
-                conn.execute(query, {
+                conn.execute(sql_insert, {
                     "p": primeiro, "u": ultimo, "user": username, 
                     "email": email, "senha": senha, "admin": is_admin_val
                 })
                 conn.commit()
             return True, "Usuário criado com sucesso!"
         except Exception as e:
-            return False, f"Erro ao salvar: {str(e)}"
+            return False, f"Erro de banco ao criar: {str(e)}"
 
-def deletar_usuario(user_id):
-    if int(user_id) == 1: return False
+def excluir_usuario(user_id):
+    """Remove um usuário do sistema (exceto o ID 1)."""
+    if int(user_id) == 1:
+        return False # Proteção contra deletar o Admin Mestre
+        
     try:
         with engine.connect() as conn:
             conn.execute(text("DELETE FROM usuarios WHERE id = :id"), {"id": int(user_id)})
             conn.commit()
         return True
     except Exception as e:
-        print(f"Erro ao deletar: {e}")
+        print(f"Erro ao excluir: {e}")
         return False
 
-# --- NOVA FUNÇÃO: USUÁRIO TROCAR A PRÓPRIA SENHA ---
-def alterar_senha_propria(user_id, senha_atual, nova_senha):
+def atualizar_senha_usuario(user_id, senha_atual, nova_senha):
+    """
+    Permite que o próprio usuário troque sua senha.
+    Exige validação da senha atual.
+    """
     try:
-        user = get_usuario_by_id(user_id)
+        user = buscar_usuario_por_id(user_id)
         if not user: return False, "Usuário não encontrado."
 
-        # 1. Verifica senha atual
+        # 1. Valida senha antiga
         if user['senha'] != senha_atual:
-            return False, "A senha atual está incorreta."
+            return False, "A senha atual informada está incorreta."
 
-        # 2. Valida nova senha
-        erros = validar_senha(nova_senha)
+        # 2. Valida requisitos da nova senha
+        erros = validar_requisitos_senha(nova_senha)
         if erros: return False, " | ".join(erros)
 
-        # 3. Salva
+        # 3. Atualiza no banco
         with engine.connect() as conn:
             conn.execute(text("UPDATE usuarios SET senha = :s WHERE id = :id"), {
                 "s": nova_senha, "id": int(user_id)
@@ -195,4 +241,4 @@ def alterar_senha_propria(user_id, senha_atual, nova_senha):
         
         return True, "Senha alterada com sucesso!"
     except Exception as e:
-        return False, f"Erro: {str(e)}"
+        return False, f"Erro ao trocar senha: {str(e)}"
