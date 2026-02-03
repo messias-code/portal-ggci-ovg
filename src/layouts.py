@@ -153,9 +153,10 @@ def layout_home(dados_usuario):
                 
                 # Área do Usuário
                 dbc.Col([
-                    html.Span(f"Olá, {dados_usuario.get('nome', 'Usuário')}", className="me-3 text-muted fw-bold"),
+                    # ALTERADO: Concatena nome + sobrenome e aplica o Title Case
+                    html.Span(f"Olá, {dados_usuario.get('nome', '')} {dados_usuario.get('sobrenome', '')}".strip().title() or "Olá, Usuário", className="me-3 text-muted fw-bold"),
                     dbc.Button([DashIconify(icon="lucide:log-out", width=22), "Sair"], 
-                               href="/logout", color="danger", outline=True, className="btn-nav")
+                                href="/logout", color="danger", outline=True, className="btn-nav")
                 ], width="auto", className="ms-auto d-flex align-items-center")
             ], className="mb-5 align-items-center border-bottom pb-4", style={"borderColor": "var(--border)"}),
 
