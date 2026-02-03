@@ -9,6 +9,9 @@ CREATE TABLE IF NOT EXISTS usuarios (
     email VARCHAR(100) NOT NULL UNIQUE,
     senha VARCHAR(255) NOT NULL,
     is_admin BOOLEAN DEFAULT FALSE,
+    tentativas_falhas INT DEFAULT 0,
+    bloqueio_ate TIMESTAMP DEFAULT NULL,
+    bloqueado_permanente BOOLEAN DEFAULT FALSE,
     CONSTRAINT check_email_domain CHECK (email LIKE '%@ovg.org.br')
 );
 

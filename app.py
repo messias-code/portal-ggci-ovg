@@ -3,7 +3,9 @@ from dash import dcc, html, Input, Output, State, callback, ctx, no_update, ALL
 import dash_bootstrap_components as dbc
 import unicodedata
 import re
-from src.database import salvar_usuario, deletar_usuario, get_usuario_by_id, verificar_login
+# IMPORTANDO A NOVA FUNÇÃO alterar_senha_propria
+from src.database import salvar_usuario, deletar_usuario, get_usuario_by_id, verificar_login, alterar_senha_propria
+# Layouts completos devem ser importados
 from src.layouts import login_main_layout, home_layout, login_gestao_layout, dashboard_layout, get_modals, softwares_layout, gerador_lista_layout, padronizador_ies_layout
 
 app = dash.Dash(__name__, external_stylesheets=[dbc.themes.DARKLY], suppress_callback_exceptions=True)
@@ -15,19 +17,17 @@ app.layout = html.Div([
     html.Div(id='page-content')
 ])
 
-# --- FUNÇÃO DE NORMALIZAÇÃO DE IES ---
+# ... (Função normalizar_ies e Roteamento MANTIDOS) ...
 def normalizar_ies(texto):
     if not texto: return ""
     texto = str(texto).strip()
     texto = unicodedata.normalize("NFKD", texto)
     texto = "".join(c for c in texto if not unicodedata.combining(c))
     texto = texto.upper()
-    # Mantém apenas Letras, Números, Espaços, () e -
     texto = re.sub(r"[^A-Z0-9\s\(\)\-]", "", texto)
     texto = re.sub(r"\s+", " ", texto)
     return texto
 
-# --- ROTEAMENTO ---
 @callback(Output('page-content', 'children'), Input('url', 'pathname'), Input('auth-store', 'data'))
 def router(pathname, auth_data):
     if pathname == '/logout': return login_main_layout()
@@ -44,65 +44,105 @@ def router(pathname, auth_data):
 
     return html.Div("Página não encontrada (404)", className="p-5")
 
-# --- CALLBACK: PADRONIZADOR DE IES ---
+# --- CALLBACK: LOGIN PRINCIPAL (ATUALIZADO) ---
 @callback(
-    [Output("output-ies", "value"),
-     Output("input-ies", "value"),
-     Output("badge-ies", "children"),       # Badge Saída
-     Output("badge-ies-input", "children"), # Badge Entrada (NOVO)
-     Output("notify-ies", "children"),
-     Output("notify-ies", "is_open")],
-    [Input("btn-processar-ies", "n_clicks"),
-     Input("btn-limpar-ies", "n_clicks")],
-    [State("input-ies", "value"),
-     State("radio-tipo-ies", "value")],
+    [Output('auth-store', 'data', allow_duplicate=True), 
+     Output('url', 'pathname', allow_duplicate=True), 
+     Output('login-main-alert', 'children')], 
+    Input('btn-login-main', 'n_clicks'), 
+    [State('login-main-user', 'value'), State('login-main-password', 'value')], 
     prevent_initial_call=True
 )
-def processar_padronizacao_ies(n_process, n_clear, texto_entrada, tipo_saida):
+def login_principal(n_clicks, user, pwd):
+    if not n_clicks: return no_update, no_update, no_update
+    if not user or not pwd: return no_update, no_update, dbc.Alert("Preencha todos os campos.", color="warning")
+    
+    # verificar_login agora retorna (dados_user, mensagem_erro)
+    res, erro_msg = verificar_login(user, pwd)
+    
+    if res: 
+        return {'id': res[0], 'nome': res[1], 'sobrenome': res[2], 'is_admin': res[3], 'is_authenticated': True}, "/home", ""
+    
+    # Se falhou, mostra a mensagem específica (ex: "Aguarde 10 min")
+    return no_update, no_update, dbc.Alert(erro_msg, color="danger")
+
+# --- NOVO CALLBACK: TROCA DE SENHA PELO USUÁRIO ---
+@callback(
+    [Output("modal-troca-senha", "is_open"),
+     Output("alert-troca-senha", "children"),
+     Output("meu-senha-atual", "value"),
+     Output("meu-nova-senha", "value"),
+     Output("meu-nova-senha-confirma", "value")],
+    [Input("btn-abrir-troca-senha", "n_clicks"),
+     Input("btn-cancel-troca", "n_clicks"),
+     Input("btn-save-troca", "n_clicks")],
+    [State("modal-troca-senha", "is_open"),
+     State("meu-senha-atual", "value"),
+     State("meu-nova-senha", "value"),
+     State("meu-nova-senha-confirma", "value"),
+     State("auth-store", "data")],
+    prevent_initial_call=True
+)
+def user_change_password(btn_open, btn_cancel, btn_save, is_open, atual, nova, confirma, auth_data):
     trigger = ctx.triggered_id
     
-    if trigger == "btn-limpar-ies":
-        return "", "", "0 itens", "0 itens", "", False
+    # Abrir modal
+    if trigger == "btn-abrir-troca-senha":
+        return True, "", "", "", ""
         
+    # Fechar modal
+    if trigger == "btn-cancel-troca":
+        return False, "", "", "", ""
+        
+    # Salvar senha
+    if trigger == "btn-save-troca":
+        if not atual or not nova or not confirma:
+            return True, dbc.Alert("Preencha todos os campos.", color="warning"), no_update, no_update, no_update
+            
+        if nova != confirma:
+            return True, dbc.Alert("A nova senha e a confirmação não conferem.", color="danger"), no_update, no_update, no_update
+            
+        # Chama função do banco
+        user_id = auth_data.get('id')
+        sucesso, msg = alterar_senha_propria(user_id, atual, nova)
+        
+        if sucesso:
+            # Sucesso: Fecha modal (ou mostra msg verde e limpa campos)
+            return False, "", "", "", "" 
+        else:
+            # Erro: Mantém aberto e mostra erro
+            return True, dbc.Alert(msg, color="danger"), no_update, no_update, no_update
+
+    return no_update, no_update, no_update, no_update, no_update
+
+# ... (MANTENHA OS OUTROS CALLBACKS: padronizador IES, gerador lista, gestão admin, etc.) ...
+# Callback Padronizador IES
+@callback([Output("output-ies", "value"), Output("input-ies", "value"), Output("badge-ies", "children"), Output("badge-ies-input", "children"), Output("notify-ies", "children"), Output("notify-ies", "is_open")], [Input("btn-processar-ies", "n_clicks"), Input("btn-limpar-ies", "n_clicks")], [State("input-ies", "value"), State("radio-tipo-ies", "value")], prevent_initial_call=True)
+def processar_padronizacao_ies(n_process, n_clear, texto_entrada, tipo_saida):
+    trigger = ctx.triggered_id
+    if trigger == "btn-limpar-ies": return "", "", "0 itens", "0 itens", "", False
     if trigger == "btn-processar-ies":
         if not texto_entrada: return no_update, no_update, no_update, no_update, no_update, no_update
-        
-        # 1. Quebra linhas e conta entrada
         linhas = [l for l in texto_entrada.split("\n") if l.strip()]
         qtd_entrada = len(linhas)
-        msg_input_badge = f"{qtd_entrada} itens"
-        
-        # 2. Aplica normalização
         linhas_normalizadas = [normalizar_ies(linha) for linha in linhas]
-        
-        # 3. Lógica de Saída
         if tipo_saida == "unique":
             lista_final = sorted(list(set(linhas_normalizadas)))
-            lista_final = [x for x in lista_final if x] # Remove vazios
-            
+            lista_final = [x for x in lista_final if x]
             texto_final = "\n".join(lista_final)
             qtd_saida = len(lista_final)
-            
-            diff = qtd_entrada - qtd_saida
-            msg_toast = f"Concluído! {qtd_saida} nomes únicos. ({diff} duplicatas removidas)"
-            msg_output_badge = f"{qtd_saida} únicos"
-            
-        else: # "full"
+            msg_toast = f"Concluído! {qtd_saida} nomes únicos."
+            badge_msg = f"{qtd_saida} únicos"
+        else:
             texto_final = "\n".join(linhas_normalizadas)
             qtd_saida = len(linhas_normalizadas)
-            msg_toast = f"Concluído! {qtd_saida} linhas padronizadas."
-            msg_output_badge = f"{qtd_saida} itens"
-            
-        return texto_final, no_update, msg_output_badge, msg_input_badge, msg_toast, True
-        
+            msg_toast = f"Concluído! {qtd_saida} linhas."
+            badge_msg = f"{qtd_saida} itens"
+        return texto_final, no_update, badge_msg, f"{qtd_entrada} itens", msg_toast, True
     return no_update, no_update, no_update, no_update, no_update, no_update
 
-# --- CALLBACKS GERAIS MANTIDOS ---
-@callback(
-    [Output("output-lista", "value"), Output("input-lista", "value"), Output("badge-contagem", "children"), Output("notify-toast", "children"), Output("notify-toast", "is_open")],
-    [Input("btn-gerar-lista", "n_clicks"), Input("btn-limpar-lista", "n_clicks")],
-    [State("input-lista", "value")], prevent_initial_call=True
-)
+# Callback Gerador Lista
+@callback([Output("output-lista", "value"), Output("input-lista", "value"), Output("badge-contagem", "children"), Output("notify-toast", "children"), Output("notify-toast", "is_open")], [Input("btn-gerar-lista", "n_clicks"), Input("btn-limpar-lista", "n_clicks")], [State("input-lista", "value")], prevent_initial_call=True)
 def processar_lista(n_gerar, n_limpar, texto_entrada):
     trigger = ctx.triggered_id
     if trigger == "btn-limpar-lista": return "", "", "0 itens", "", False 
@@ -112,29 +152,21 @@ def processar_lista(n_gerar, n_limpar, texto_entrada):
         linhas_unicas = sorted(list(set(linhas)))
         resultado = ",".join(linhas_unicas)
         qtd = len(linhas_unicas)
-        dups = len(linhas) - qtd
-        msg_toast = f"Lista gerada! {qtd} itens únicos. ({dups} duplicatas removidas)" if dups > 0 else f"Lista gerada com sucesso! {qtd} itens processados."
-        return resultado, no_update, f"{qtd} únicos", msg_toast, True
+        return resultado, no_update, f"{qtd} únicos", f"Gerado! {qtd} itens.", True
     return no_update, no_update, no_update, no_update, no_update
 
-@callback([Output('auth-store', 'data', allow_duplicate=True), Output('url', 'pathname', allow_duplicate=True), Output('login-main-alert', 'children')], Input('btn-login-main', 'n_clicks'), [State('login-main-user', 'value'), State('login-main-password', 'value')], prevent_initial_call=True)
-def login_principal(n_clicks, user, pwd):
-    if not n_clicks: return no_update, no_update, no_update
-    if not user or not pwd: return no_update, no_update, dbc.Alert("Preencha todos os campos.", color="warning")
-    res = verificar_login(user, pwd)
-    if res: return {'id': res[0], 'nome': res[1], 'sobrenome': res[2], 'is_admin': res[3], 'is_authenticated': True}, "/home", ""
-    return no_update, no_update, dbc.Alert("Usuário ou senha incorretos.", color="danger")
-
+# Callback Login Gestão
 @callback([Output('url', 'pathname', allow_duplicate=True), Output('login-gestao-alert', 'children')], Input('btn-login-gestao', 'n_clicks'), [State('login-gestao-user', 'value'), State('login-gestao-password', 'value')], prevent_initial_call=True)
 def login_gestao(n_clicks, user, pwd):
     if not n_clicks: return no_update, no_update
-    if not user or not pwd: return no_update, dbc.Alert("Preencha todos os campos.", color="warning")
-    res = verificar_login(user, pwd)
+    if not user or not pwd: return no_update, dbc.Alert("Preencha campos.", color="warning")
+    res, erro = verificar_login(user, pwd) # Agora retorna tupla
     if res:
-        if not res[3]: return no_update, dbc.Alert("Acesso negado. Usuário não é administrador.", color="danger")
+        if not res[3]: return no_update, dbc.Alert("Acesso negado. Não é admin.", color="danger")
         return "/gestao/dashboard", ""
     return no_update, dbc.Alert("Credenciais inválidas.", color="danger")
 
+# Callbacks Admin (Modal, Save, Delete) - Mantidos
 @callback(Output('auth-store', 'data', allow_duplicate=True), Input('url', 'pathname'), prevent_initial_call=True)
 def logout_handler(path):
     if path == '/logout': return {}
