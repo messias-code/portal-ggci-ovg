@@ -153,7 +153,7 @@ def notificar_acesso_negado(n_clicks):
 # CALLBACKS: FERRAMENTAS (NORMALIZADOR E FORMATADOR)
 # =============================================================================
 
-# --- 1. NORMALIZADOR DE DADOS (Callback com validação e Texto Curto) ---
+# --- 1. NORMALIZADOR DE DADOS (Lógica Corrigida: Remoção ANTES da Formatação) ---
 @callback(
     [Output("output-ies", "value"),
      Output("badge-ies-entrada", "children"),
@@ -191,7 +191,7 @@ def processar_normalizacao_avancada(n_processar, n_limpar, texto_entrada, case_t
     if remove_chars:
         if " " in remove_chars:
             alerta_espaco = True
-            remove_chars = remove_chars.replace(" ", "") # Remove o espaço da lógica
+            remove_chars = remove_chars.replace(" ", "")
         
         if remove_chars:
             try:
@@ -205,19 +205,29 @@ def processar_normalizacao_avancada(n_processar, n_limpar, texto_entrada, case_t
     lista_processada = []
 
     for item in linhas:
-        if case_type == "upper": item = item.upper()
-        elif case_type == "lower": item = item.lower()
-        elif case_type == "title": item = item.title()
-        
-        if remove_accents: item = remove_acentos(item)
-        
+        # 1. PRIMEIRO: Remove Caracteres Específicos (No texto original)
+        # Isso garante que se eu mandar remover "A", ele remove só o maiúsculo antes de virar tudo maiúsculo.
         if chars_to_remove_regex:
             item = re.sub(chars_to_remove_regex, "", item)
+
+        # 2. SEGUNDO: Remove Acentuação
+        if remove_accents: 
+            item = remove_acentos(item)
+
+        # 3. TERCEIRO: Aplica a Formatação (Case)
+        # Agora sim, o que sobrou é formatado.
+        if case_type == "upper": 
+            item = item.upper()
+        elif case_type == "lower": 
+            item = item.lower()
+        elif case_type == "title": 
+            item = item.title()
         
-        # Limpeza padrão de espaços
+        # 4. QUARTO: Limpeza final de espaços
         item = " ".join(item.split())
         
-        if item: lista_processada.append(item)
+        if item: 
+            lista_processada.append(item)
 
     if output_type == "unique":
         lista_final = list(dict.fromkeys(lista_processada))
@@ -227,7 +237,6 @@ def processar_normalizacao_avancada(n_processar, n_limpar, texto_entrada, case_t
     resultado_texto = "\n".join(lista_final)
     count_saida = len(lista_final)
     
-    # MENSAGEM CURTA AQUI:
     if alerta_espaco:
         msg_toast = "Aviso: Espaços extras já são removidos automaticamente."
         header_toast = "Aviso"
