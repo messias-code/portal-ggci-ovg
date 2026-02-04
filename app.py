@@ -2,8 +2,6 @@
 =============================================================================
 ARQUIVO PRINCIPAL (ENTRY POINT)
 =============================================================================
-Gerencia a inicialização da aplicação Dash, o roteamento de páginas e
-a orquestração de todos os Callbacks (lógica de interação).
 """
 import dash
 from dash import dcc, html, Input, Output, State, callback, ctx, no_update, ALL
@@ -20,7 +18,6 @@ from src.database import (
     listar_todos_usuarios
 )
 
-# IMPORTAÇÃO CORRIGIDA: Removemos layout_login_admin
 from src.layouts import (
     layout_login_principal,
     layout_home,
@@ -28,7 +25,8 @@ from src.layouts import (
     layout_ferramenta_inscricoes,
     layout_ferramenta_ies,
     layout_dashboard_admin,
-    componentes_modais_admin
+    componentes_modais_admin,
+    gerar_linhas_usuarios  # <--- NOVA IMPORTAÇÃO
 )
 
 app = dash.Dash(__name__, external_stylesheets=[dbc.themes.DARKLY], suppress_callback_exceptions=True)
@@ -72,11 +70,9 @@ def router(pathname, auth_data):
 
     # Rota Protegida de Gestão
     if pathname == '/gestao/dashboard': 
-        # Verifica se é admin antes de renderizar
         if auth_data.get('is_admin'):
             return html.Div([layout_dashboard_admin(), componentes_modais_admin()])
         else:
-            # Se tentar acessar via URL direta e não for admin, volta pra Home
             return layout_home(auth_data)
 
     return html.Div("Página não encontrada (404)", className="p-5 text-center text-muted")
@@ -85,7 +81,6 @@ def router(pathname, auth_data):
 # CALLBACKS: LOGIN E SEGURANÇA
 # =============================================================================
 
-# 1. Login Principal
 @callback(
     [Output('auth-store', 'data', allow_duplicate=True), 
      Output('url', 'pathname', allow_duplicate=True), 
@@ -112,13 +107,11 @@ def realizar_login(n_clicks, user, pwd):
     
     return no_update, no_update, dbc.Alert(erro_msg, color="danger")
 
-# 2. Logout
 @callback(Output('auth-store', 'data', allow_duplicate=True), Input('url', 'pathname'), prevent_initial_call=True)
 def realizar_logout(path):
     if path == '/logout': return {}
     return no_update
 
-# 3. Troca de Senha (Usuário)
 @callback(
     [Output("modal-troca-senha", "is_open"),
      Output("feedback-troca-senha", "children"),
@@ -157,48 +150,28 @@ def usuario_trocar_senha(btn_open, btn_cancel, btn_save, is_open, atual, nova, c
 
     return no_update, no_update, no_update, no_update, no_update
 
-# 4. Toast de Acesso Negado (Novo Callback)
-@callback(
-    Output("toast-acesso-negado", "is_open"),
-    Input("btn-acesso-negado-gestao", "n_clicks"),
-    prevent_initial_call=True
-)
+@callback(Output("toast-acesso-negado", "is_open"), Input("btn-acesso-negado-gestao", "n_clicks"), prevent_initial_call=True)
 def notificar_acesso_negado(n_clicks):
-    """Exibe o toast quando um não-admin clica no card de gestão."""
     return True
 
 # =============================================================================
 # CALLBACKS: FERRAMENTAS
 # =============================================================================
 
-# 1. Padronizador de IES
 @callback(
-    [Output("output-ies", "value"),
-     Output("input-ies", "value"),
-     Output("badge-ies-saida", "children"),
-     Output("badge-ies-entrada", "children"),
-     Output("toast-ies", "children"),
-     Output("toast-ies", "is_open")],
-    [Input("btn-processar-ies", "n_clicks"),
-     Input("btn-limpar-ies", "n_clicks")],
-    [State("input-ies", "value"),
-     State("radio-tipo-ies", "value")],
+    [Output("output-ies", "value"), Output("input-ies", "value"), Output("badge-ies-saida", "children"), Output("badge-ies-entrada", "children"), Output("toast-ies", "children"), Output("toast-ies", "is_open")],
+    [Input("btn-processar-ies", "n_clicks"), Input("btn-limpar-ies", "n_clicks")],
+    [State("input-ies", "value"), State("radio-tipo-ies", "value")],
     prevent_initial_call=True
 )
 def ferramenta_ies(n_process, n_clear, texto_entrada, tipo_saida):
     trigger = ctx.triggered_id
-    
-    if trigger == "btn-limpar-ies":
-        return "", "", "0 itens", "0 itens", "", False
-        
+    if trigger == "btn-limpar-ies": return "", "", "0 itens", "0 itens", "", False
     if trigger == "btn-processar-ies":
         if not texto_entrada: return no_update, no_update, no_update, no_update, no_update, no_update
-        
         linhas = [l for l in texto_entrada.split("\n") if l.strip()]
         qtd_entrada = len(linhas)
-        
         linhas_normalizadas = [normalizar_texto_padrao(linha) for linha in linhas]
-        
         if tipo_saida == "unique":
             lista_final = sorted(list(set(linhas_normalizadas)))
             lista_final = [x for x in lista_final if x] 
@@ -211,106 +184,103 @@ def ferramenta_ies(n_process, n_clear, texto_entrada, tipo_saida):
             qtd_saida = len(linhas_normalizadas)
             msg_toast = f"Concluído! {qtd_saida} linhas processadas."
             badge_saida = f"{qtd_saida} itens"
-            
         return texto_final, no_update, badge_saida, f"{qtd_entrada} itens", msg_toast, True
-        
     return no_update, no_update, no_update, no_update, no_update, no_update
 
-# 2. Padronizador de Inscrições
 @callback(
-    [Output("output-inscricoes", "value"),
-     Output("input-inscricoes", "value"),
-     Output("badge-inscricoes-saida", "children"),
-     Output("badge-inscricoes-entrada", "children"),
-     Output("toast-inscricoes", "children"),
-     Output("toast-inscricoes", "is_open")],
-    [Input("btn-processar-inscricoes", "n_clicks"),
-     Input("btn-limpar-inscricoes", "n_clicks")],
-    [State("input-inscricoes", "value")], 
-    prevent_initial_call=True
+    [Output("output-inscricoes", "value"), Output("input-inscricoes", "value"), Output("badge-inscricoes-saida", "children"), Output("badge-inscricoes-entrada", "children"), Output("toast-inscricoes", "children"), Output("toast-inscricoes", "is_open")],
+    [Input("btn-processar-inscricoes", "n_clicks"), Input("btn-limpar-inscricoes", "n_clicks")],
+    [State("input-inscricoes", "value")], prevent_initial_call=True
 )
 def ferramenta_inscricoes(n_gerar, n_limpar, texto_entrada):
     trigger = ctx.triggered_id
-    
-    if trigger == "btn-limpar-inscricoes":
-        return "", "", "0 itens", "0 itens", "", False 
-        
+    if trigger == "btn-limpar-inscricoes": return "", "", "0 itens", "0 itens", "", False 
     if trigger == "btn-processar-inscricoes":
         if not texto_entrada: return no_update, no_update, no_update, no_update, no_update, no_update
-        
         linhas = [linha.strip() for linha in texto_entrada.split("\n") if linha.strip()]
         qtd_entrada = len(linhas)
-        
         linhas_unicas = sorted(list(set(linhas)))
         resultado = ",".join(linhas_unicas)
-        
         qtd_saida = len(linhas_unicas)
         duplicatas = qtd_entrada - qtd_saida
         msg_toast = f"Gerado! {qtd_saida} únicos. ({duplicatas} duplicatas removidas)" if duplicatas > 0 else f"Sucesso! {qtd_saida} itens processados."
-        
         return resultado, no_update, f"{qtd_saida} únicos", f"{qtd_entrada} itens", msg_toast, True
-        
     return no_update, no_update, no_update, no_update, no_update, no_update
 
 # =============================================================================
 # CALLBACKS: ADMINISTRAÇÃO (CRUD)
 # =============================================================================
 
-# 1. Toggle Senha Admin
+# --- NOVO CALLBACK DE PESQUISA ---
+@callback(
+    Output("tabela-usuarios-body", "children"),
+    Input("input-pesquisa-usuario", "value")
+)
+def filtrar_usuarios_tabela(termo_pesquisa):
+    """Filtra a tabela de usuários em tempo real."""
+    df = listar_todos_usuarios()
+    
+    if termo_pesquisa:
+        termo = termo_pesquisa.lower()
+        # Filtra se o termo aparecer em Nome, Sobrenome, Email ou Username
+        df = df[
+            df['primeiro_nome'].str.lower().str.contains(termo) |
+            df['ultimo_nome'].str.lower().str.contains(termo) |
+            df['username'].str.lower().str.contains(termo) |
+            df['email'].str.lower().str.contains(termo)
+        ]
+    
+    return gerar_linhas_usuarios(df)
+
 @callback([Output("input-senha", "type"), Output("input-senha-confirma", "type")], Input("check-mostrar-senha-admin", "value"), prevent_initial_call=True)
 def toggle_pwd_admin(val): return ("text", "text") if val else ("password", "password")
 
-# 2. Gerenciar Usuário (Abrir Modal / Salvar)
 @callback([Output("modal-usuario", "is_open"), Output("modal-titulo-usuario", "children"), Output("store-edit-id", "data"), Output("input-primeiro-nome", "value"), Output("input-ultimo-nome", "value"), Output("input-email", "value"), Output("check-is-admin", "value"), Output("input-senha", "value"), Output("input-senha-confirma", "value"), Output("alert-modal-usuario", "children")], [Input("btn-novo-usuario", "n_clicks"), Input({"type": "btn-edit-user", "index": ALL}, "n_clicks"), Input("btn-cancelar-modal", "n_clicks"), Input("btn-salvar-usuario", "n_clicks")], [State("modal-usuario", "is_open"), State("store-edit-id", "data"), State("input-primeiro-nome", "value"), State("input-ultimo-nome", "value"), State("input-email", "value"), State("input-senha", "value"), State("input-senha-confirma", "value"), State("check-is-admin", "value")], prevent_initial_call=True)
 def admin_gerenciar_usuario(btn_new, btn_edit, btn_cancel, btn_save, is_open, edit_id, nome, sobrenome, email, senha, senha2, is_admin):
     trigger = ctx.triggered_id
     if not trigger: return no_update
     
-    # Novo Usuário
     if trigger == "btn-novo-usuario": 
         return True, "Cadastrar Usuário", None, "", "", "", False, "", "", ""
         
-    # Editar Usuário
     if isinstance(trigger, dict) and trigger['type'] == 'btn-edit-user':
+        # CORREÇÃO CRÍTICA: Verifica se o botão foi REALMENTE clicado (ignora criação automática)
+        if not btn_edit or not any(btn_edit): return no_update
+        
         user_data = buscar_usuario_por_id(trigger['index'])
         if user_data: 
             return True, "Editar Usuário", trigger['index'], user_data['primeiro_nome'], user_data['ultimo_nome'], user_data['email'], bool(user_data['is_admin']), "", "", ""
         return no_update
         
-    # Cancelar
     if trigger == "btn-cancelar-modal": 
         return False, no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update, ""
         
-    # Salvar
     if trigger == "btn-salvar-usuario":
-        # Validações básicas
         if not all([nome, sobrenome, email]): return True, no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update, dbc.Alert("Campos obrigatórios!", color="warning")
-        
-        # Validação de senha na criação
         if not edit_id and not senha: return True, no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update, dbc.Alert("Senha obrigatória para novos usuários.", color="warning")
-        
         if senha and senha != senha2: return True, no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update, dbc.Alert("Senhas não conferem!", color="danger")
         
-        # Chama Database
         sucesso, msg = persistir_usuario(nome, sobrenome, email, senha, bool(is_admin), user_id=edit_id)
-        
         if sucesso: return False, no_update, None, "", "", "", False, "", "", ""
         return True, no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update, dbc.Alert(msg, color="danger")
     
     return no_update
 
-# 3. Reload Tabela
 @callback(Output("url", "pathname", allow_duplicate=True), [Input("modal-usuario", "is_open"), Input("modal-delete", "is_open")], prevent_initial_call=True)
 def admin_reload_table(m1, m2):
     if not m1 and not m2: return "/gestao/dashboard"
     return no_update
 
-# 4. Fluxo de Exclusão
 @callback([Output("modal-delete", "is_open"), Output("store-delete-id", "data")], [Input({"type": "btn-delete-user", "index": ALL}, "n_clicks"), Input("btn-cancelar-delete", "n_clicks"), Input("btn-confirmar-delete", "n_clicks")], [State("store-delete-id", "data")], prevent_initial_call=True)
 def admin_delete_flow(btn_trash, btn_cancel, btn_confirm, del_id):
     trigger = ctx.triggered_id
     if not trigger: return no_update
-    if isinstance(trigger, dict): return True, trigger['index']
+    
+    if isinstance(trigger, dict):
+        # CORREÇÃO CRÍTICA: Verifica se o botão foi REALMENTE clicado
+        if not btn_trash or not any(btn_trash): return no_update
+        return True, trigger['index']
+        
     if trigger == "btn-cancelar-delete": return False, None
     if trigger == "btn-confirmar-delete":
         if del_id: excluir_usuario(del_id)

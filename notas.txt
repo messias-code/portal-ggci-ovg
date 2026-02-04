@@ -1,0 +1,5 @@
+1. Em controle de acesso o botão de criar novo usuario tem que ter o mesmo alinhamento que a barra de pesquisa.
+2. Mudar todos os icones, não estão bons e nem centralizados e parece que são de tipos diferentes.
+3. Em alterar minha senha, falta ser estilizado e tem que ser no centro da tela, não tá centralizado.
+4. Em Gestão de Acesso e documentações deveria ser o outro tom de rosa, e em alterar minha senha tem que ser o amarelo e em ferramentas o verde, assim seguindo a ordem de cores da logo (rosa claro, roxa escuro, roxo, verde, amarelo) unico certo é o dashboards
+5. Alterar textos em Ferramentas e nas Ferramentas em sí
