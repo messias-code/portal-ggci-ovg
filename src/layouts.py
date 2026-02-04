@@ -63,31 +63,45 @@ def layout_login_principal():
 def layout_home(dados_usuario):
     is_admin = dados_usuario.get('is_admin', False)
 
+    # CORES REAIS OVG (Extraídas das imagens enviadas)
+    OVG_ROSA_CLARO = "#F08EB3"  # Início da logo
+    OVG_ROSA_MEDIO = "#D45694"  # Sobreposição central
+    OVG_ROXO_REAL = "#8E6AB3"   # Parte roxa da logo
+    OVG_VERDE_REAL = "#A0D468"  # Verde da logo
+    OVG_AMARELO_REAL = "#FFCE54" # Amarelo da logo
+
+    # 1. GESTÃO DE ACESSOS - Rosa Claro
     conteudo_card_gestao = html.Div(className="app-card-hover", children=[
-        DashIconify(icon="lucide:settings", width=55, color=OVG_PINK), 
+        DashIconify(icon="lucide:shield-check", width=60, color=OVG_ROSA_CLARO), 
         html.H5("Gestão de Acessos", className="mt-4 text-center fw-bold", style={"color": "white"})
-    ], style=estilo_card_menu(OVG_PINK))
+    ], style=estilo_card_menu(OVG_ROSA_CLARO))
 
     card_gestao = dcc.Link(conteudo_card_gestao, href="/gestao/dashboard", style={"textDecoration": "none"}) if is_admin else html.Div(conteudo_card_gestao, id="btn-acesso-negado-gestao")
 
+    # --- MODAL DE TROCA DE SENHA (AMARELO REAL) ---
     modal_troca_senha = dbc.Modal([
-        dbc.ModalHeader(dbc.ModalTitle("Alterar Minha Senha")),
+        dbc.ModalHeader(dbc.ModalTitle("Alterar Minha Senha", className="fw-bold"), close_button=True, style={"borderBottom": f"2px solid {OVG_AMARELO_REAL}"}),
         dbc.ModalBody([
-            dbc.Label("Senha Atual", className="fw-bold"),
-            dbc.Input(id="input-senha-atual", type="password", className="mb-3"),
-            dbc.Label("Nova Senha", className="fw-bold"),
-            dbc.Input(id="input-nova-senha", type="password", placeholder="Mín. 8 caracteres | 1 Maiúscula | 2 Números | 1 Símbolo", className="mb-2"),
+            html.Div([
+                DashIconify(icon="lucide:fingerprint", width=50, color=OVG_AMARELO_REAL, className="mb-3"),
+                html.P("Mantenha sua conta segura atualizando sua senha periodicamente.", className="text-muted small")
+            ], className="text-center mb-4"),
+            dbc.Label("Senha Atual", className="fw-bold", style={"color": OVG_AMARELO_REAL}),
+            dbc.Input(id="input-senha-atual", type="password", placeholder="Digite sua senha atual", className="mb-3"),
+            dbc.Label("Nova Senha", className="fw-bold", style={"color": OVG_AMARELO_REAL}),
+            dbc.Input(id="input-nova-senha", type="password", placeholder="Nova senha", className="mb-2"),
             dbc.Input(id="input-nova-senha-confirma", type="password", placeholder="Confirme a nova senha", className="mb-3"),
             html.Div(id="feedback-troca-senha", className="mt-3")
-        ]),
+        ], className="px-4 py-4"),
         dbc.ModalFooter([
-            dbc.Button("Cancelar", id="btn-cancelar-troca", color="secondary"),
-            dbc.Button("Salvar Nova Senha", id="btn-salvar-troca", style={"backgroundColor": OVG_ORANGE, "border": "none"})
-        ])
-    ], id="modal-troca-senha", is_open=False, size="lg", backdrop="static")
+            dbc.Button("CANCELAR", id="btn-cancelar-troca", color="light", className="px-4 fw-bold me-2"),
+            dbc.Button("SALVAR NOVA SENHA", id="btn-salvar-troca", style={"backgroundColor": OVG_AMARELO_REAL, "border": "none", "color": "#333"}, className="px-4 fw-bold")
+        ], style={"borderTop": "1px solid var(--border)"})
+    ], id="modal-troca-senha", is_open=False, size="md", centered=True, backdrop="static")
 
     return html.Div(className="container-fluid p-4", children=[
         html.Div(className="main-container", style={"minHeight": "80vh", "maxWidth": "1400px", "margin": "40px auto 0 auto"}, children=[          
+            # --- CABEÇALHO ---
             dbc.Row([
                 dbc.Col(html.Img(src="/assets/logo.png", style={"height": "85px"}), width="auto"),
                 dbc.Col([
@@ -96,35 +110,46 @@ def layout_home(dados_usuario):
                 ], className="ps-3"),
                 dbc.Col([
                     html.Span(f"Olá, {dados_usuario.get('nome', '')} {dados_usuario.get('sobrenome', '')}".strip().title() or "Olá, Usuário", className="me-3 text-muted fw-bold", style={"fontSize": "1.2rem"}),
-                    dbc.Button([DashIconify(icon="lucide:log-out", width=22), "Sair"], href="/logout", color="danger", outline=True, className="btn-nav")
+                    dbc.Button([DashIconify(icon="lucide:power", width=20, className="me-2"), "Sair"], href="/logout", color="danger", outline=True, className="btn-nav")
                 ], width="auto", className="ms-auto d-flex align-items-center")
             ], className="mb-5 align-items-center border-bottom pb-4", style={"borderColor": "var(--border)"}),
 
+            # --- CARDS DO MENU PRINCIPAL (PALETA REAL OVG) ---
             dbc.Row([
+                # 1. Gestão (Rosa Claro)
                 dbc.Col([card_gestao], width="100%", md="auto", className="m-3 d-flex justify-content-center"),
+                
+                # 2. Documentações (Rosa Médio / Sobreposição)
                 dbc.Col([dcc.Link(html.Div(className="app-card-hover", children=[
-                            DashIconify(icon="lucide:file-text", width=65, color=OVG_GREEN), 
+                            DashIconify(icon="lucide:files", width=60, color=OVG_ROSA_MEDIO), 
                             html.H5("Documentações", className="mt-4 text-center fw-bold", style={"color": "white"})
-                        ], style=estilo_card_menu(OVG_GREEN)), href="#", style={"textDecoration": "none"})
+                        ], style=estilo_card_menu(OVG_ROSA_MEDIO)), href="#", style={"textDecoration": "none"})
                 ], width="100%", md="auto", className="m-3 d-flex justify-content-center"),
+                
+                # 3. Dashboards (Roxo Real)
                 dbc.Col([dcc.Link(html.Div(className="app-card-hover", children=[
-                            DashIconify(icon="lucide:layout-dashboard", width=65, color=OVG_PURPLE), 
+                            DashIconify(icon="lucide:component", width=60, color=OVG_ROXO_REAL), 
                             html.H5("Dashboards", className="mt-4 text-center fw-bold", style={"color": "white"})
-                        ], style=estilo_card_menu(OVG_PURPLE)), href="#", style={"textDecoration": "none"})
+                        ], style=estilo_card_menu(OVG_ROXO_REAL)), href="#", style={"textDecoration": "none"})
                 ], width="100%", md="auto", className="m-3 d-flex justify-content-center"),
+                
+                # 4. Ferramentas (Verde Real)
                 dbc.Col([dcc.Link(html.Div(className="app-card-hover", children=[
-                            DashIconify(icon="mdi:language-python", width=65, color=OVG_YELLOW), 
+                            DashIconify(icon="lucide:layers", width=60, color=OVG_VERDE_REAL), 
                             html.H5("Ferramentas", className="mt-4 text-center fw-bold", style={"color": "white"})
-                        ], style=estilo_card_menu(OVG_YELLOW)), href="/softwares", style={"textDecoration": "none"})
+                        ], style=estilo_card_menu(OVG_VERDE_REAL)), href="/softwares", style={"textDecoration": "none"})
                 ], width="100%", md="auto", className="m-3 d-flex justify-content-center"),
+                
+                # 5. Alterar Senha (Amarelo Real)
                 dbc.Col([html.Div(className="app-card-hover", id="btn-abrir-troca-senha", children=[
-                        DashIconify(icon="lucide:lock-keyhole", width=55, color=OVG_ORANGE), 
-                        html.H5("Alterar Minha Senha", className="mt-4 text-center fw-bold", style={"color": "white"})
-                    ], style=estilo_card_menu(OVG_ORANGE))
+                        DashIconify(icon="lucide:fingerprint", width=60, color=OVG_AMARELO_REAL), 
+                        html.H5("Alterar Senha", className="mt-4 text-center fw-bold", style={"color": "white"})
+                    ], style=estilo_card_menu(OVG_AMARELO_REAL))
                 ], width="100%", md="auto", className="m-3 d-flex justify-content-center"),
             ], justify="center", className="mt-4"),
+
             modal_troca_senha,
-            dbc.Toast("Apenas administradores possuem acesso a este módulo.", id="toast-acesso-negado", header="Acesso Restrito", icon="danger", duration=4000, is_open=False, dismissable=True, style={"position": "fixed", "top": 820, "right": 20, "width": 350, "zIndex": 1050}),
+            dbc.Toast("Apenas administradores possuem acesso a este módulo.", id="toast-acesso-negado", header="Acesso Restrito", icon="danger", duration=4000, is_open=False, dismissable=True, style={"position": "fixed", "bottom": 20, "right": 20, "width": 350, "zIndex": 1050}),
         ])
     ])
 
@@ -132,173 +157,446 @@ def layout_home(dados_usuario):
 # 3. MENU DE SOFTWARES
 # =============================================================================
 def layout_menu_softwares(user_data):
+    # Cores reais da logo OVG para manter a ordem
+    OVG_ROSA_CLARO = "#F08EB3"
+    OVG_ROSA_MEDIO = "#D45694"
+
     return html.Div(className="container-fluid p-4", children=[
         html.Div(className="main-container", style={"minHeight": "80vh", "maxWidth": "1400px", "margin": "40px auto 0 auto"}, children=[
+            # Cabeçalho Padronizado
             dbc.Row([
                 dbc.Col(html.Img(src="/assets/logo.png", style={"height": "50px"}), width="auto"),
-                dbc.Col([html.H3("Ferramentas", className="m-0 fw-bold"), html.Span("Automação de atividades", className="text-muted", style={"fontSize": "1.1rem"})], className="ps-3"),
-                dbc.Col(dbc.Button([DashIconify(icon="lucide:arrow-left", width=22), "Voltar"], href="/home", color="light", outline=True, className="btn-nav"), width="auto", className="ms-auto")
+                dbc.Col([
+                    html.H3("Ferramentas", className="m-0 fw-bold"), 
+                    # MUDANÇA 1: Subtítulo mais profissional
+                    html.Span("Otimização de Rotinas Administrativas", className="text-muted", style={"fontSize": "1.1rem"})
+                ], className="ps-3"),
+                dbc.Col(dbc.Button([DashIconify(icon="lucide:arrow-left-circle", width=22, className="me-2"), "Voltar"], href="/home", color="light", outline=True, className="btn-nav"), width="auto", className="ms-auto")
             ], className="mb-5 align-items-center border-bottom pb-4", style={"borderColor": "var(--border)"}),
+            
             dbc.Row([
+                # 1. Formatador de Listas (Antigo Padronizador de Inscrições)
                 dbc.Col([dcc.Link(html.Div(className="app-card-hover", children=[
-                            DashIconify(icon="lucide:brain-circuit", width=65, color=OVG_GREEN), 
-                            html.H5("Padronizador de Inscrições", className="mt-4 text-center fw-bold", style={"color": "white", "marginBottom": "5px"}),
-                            html.Span("Gestão ProBem", className="text-center small text-muted", style={"fontSize": "0.85rem"})
-                        ], style=estilo_card_menu(OVG_GREEN)), href="/softwares/gerador-lista", style={"textDecoration": "none"})
+                            DashIconify(icon="lucide:brain-circuit", width=65, color=OVG_ROSA_CLARO), 
+                            # MUDANÇA 2: Título focado na ação
+                            html.H5("Formatador de Listas", className="mt-4 text-center fw-bold", style={"color": "white", "marginBottom": "5px"}),
+                            # MUDANÇA 3: Descrição focada no resultado
+                            html.Span("Preparo de inscrições para consultas", className="text-center small text-muted", style={"fontSize": "0.85rem"})
+                        ], style=estilo_card_menu(OVG_ROSA_CLARO)), href="/softwares/gerador-lista", style={"textDecoration": "none"})
                 ], width="100%", md="auto", className="m-3 d-flex justify-content-center"),
+                
+                # 2. Normalizador de Dados (Antigo Padronizador de IES)
                 dbc.Col([dcc.Link(html.Div(className="app-card-hover", children=[
-                            DashIconify(icon="lucide:graduation-cap", width=65, color=OVG_BLUE), 
-                            html.H5("Padronizador de IES", className="mt-4 text-center fw-bold", style={"color": "white", "marginBottom": "5px"}),
-                            html.Span("Limpeza e Normalização", className="text-center small text-muted", style={"fontSize": "0.85rem"})
-                        ], style=estilo_card_menu(OVG_BLUE)), href="/softwares/padronizador-ies", style={"textDecoration": "none"})
+                            DashIconify(icon="lucide:graduation-cap", width=65, color=OVG_ROSA_MEDIO), 
+                            # MUDANÇA 4: Título mais profissional
+                            html.H5("Normalizador de Dados", className="mt-4 text-center fw-bold", style={"color": "white", "marginBottom": "5px"}),
+                            # MUDANÇA 5: Descrição clara do benefício
+                            html.Span("Padronização e correção de registros", className="text-center small text-muted", style={"fontSize": "0.85rem"})
+                        ], style=estilo_card_menu(OVG_ROSA_MEDIO)), href="/softwares/padronizador-ies", style={"textDecoration": "none"})
                 ], width="100%", md="auto", className="m-3 d-flex justify-content-center"),
             ], justify="center", className="mt-5"),
         ])
     ])
 
 # =============================================================================
-# 4. FERRAMENTA: PADRONIZADOR DE INSCRIÇÕES
+# 4. FERRAMENTA: PADRONIZADOR DE INSCRIÇÕES (Agora Formatador de Listas)
 # =============================================================================
 def layout_ferramenta_inscricoes():
-    return html.Div(className="container-fluid p-3 p-md-5", children=[ 
-        html.Div(className="main-container", style={"minHeight": "85vh", "maxWidth": "1400px", "margin": "40px auto 0 auto"}, children=[
-            dbc.Row([
-                dbc.Col([html.H3([DashIconify(icon="lucide:brain-circuit", className="me-2", color=OVG_GREEN), "Padronizador de Inscrições"], className="m-0 fw-bold"), html.Span("Gestão ProBem - Padronização de dados do Excel", className="text-muted", style={"fontSize": "1.1rem"})]),
-                dbc.Col(dbc.Button([DashIconify(icon="lucide:arrow-left", width=25), "Voltar"], href="/softwares", color="light", outline=True, className="btn-nav"), width="auto", className="ms-auto")
-            ], className="mb-4 pb-3 border-bottom", style={"borderColor": "var(--border)"}),
+    OVG_ROSA_CLARO = "#F08EB3"
+    
+    return html.Div(className="container-fluid p-3 p-md-4", children=[ 
+        html.Div(className="main-container", style={"minHeight": "85vh", "maxWidth": "1400px", "margin": "20px auto 0 auto"}, children=[
             dbc.Row([
                 dbc.Col([
-                    html.Div([dbc.Label("Cole o texto aqui (Excel):", className="fw-bold text-muted mb-0"), dbc.Badge("0 itens", id="badge-inscricoes-entrada", color="secondary", className="ms-2", style={"backgroundColor": "#6c757d"})], className="d-flex align-items-center mb-2"),
-                    dbc.Textarea(id="input-inscricoes", className="mb-3 flex-grow-1", style={"backgroundColor": "rgba(0,0,0,0.2)", "color": "white", "border": "1px solid var(--border)", "fontSize": "0.95rem", "resize": "none", "height": "100%"}, placeholder="Ex:\nInscrição 1\nInscrição 2\nInscrição 3"),
+                    # 1. TÍTULO ALTERADO
+                    html.H3([DashIconify(icon="lucide:brain-circuit", className="me-2", color=OVG_ROSA_CLARO), "Formatador de Listas"], className="m-0 fw-bold"), 
+                    # 2. SUBTÍTULO ALTERADO
+                    html.Span("Formatação automática para filtros SQL e Planilhas", className="text-muted", style={"fontSize": "1.1rem"})
+                ]),
+                dbc.Col(dbc.Button([DashIconify(icon="lucide:arrow-left-circle", width=25, className="me-2"), "Voltar"], href="/softwares", color="light", outline=True, className="btn-nav"), width="auto", className="ms-auto d-flex align-items-center")
+            ], className="mb-4 pb-3 border-bottom align-items-center", style={"borderColor": "var(--border)"}),
+            
+            dbc.Row([
+                dbc.Col([
+                    html.Div([
+                        # 3. LABEL DE ENTRADA ALTERADO
+                        dbc.Label("Lista Original (Excel/Texto):", className="fw-bold text-muted mb-0"), 
+                        dbc.Badge("0 itens", id="badge-inscricoes-entrada", color="secondary", className="ms-2")
+                    ], className="d-flex align-items-center mb-2"),
+                    
+                    # 4. PLACEHOLDER ALTERADO
+                    dbc.Textarea(id="input-inscricoes", className="mb-3 flex-grow-1", style={"backgroundColor": "rgba(0,0,0,0.2)", "color": "white", "border": "1px solid var(--border)", "fontSize": "0.95rem", "resize": "none", "height": "100%"}, 
+                                 placeholder="Cole a coluna de inscrições aqui..."),
+                    
                     dbc.Row([
-                        dbc.Col(dbc.Button("LIMPAR", id="btn-limpar-inscricoes", color="secondary", className="w-100 fw-bold py-2"), width=12, md=3, className="mb-2 mb-md-0"),
-                        # CORRIGIDO: Botão agora é OVG_GREEN
-                        dbc.Col(dbc.Button("GERAR LISTA", id="btn-processar-inscricoes", className="w-100 fw-bold py-2", style={"backgroundColor": OVG_GREEN, "border": "none"}), width=12, md=9),
+                        dbc.Col(dbc.Button("LIMPAR", id="btn-limpar-inscricoes", color="secondary", className="w-100 fw-bold py-2"), width=12, md=3),
+                        dbc.Col(dbc.Button("GERAR LISTA", id="btn-processar-inscricoes", className="w-100 fw-bold py-2", style={"backgroundColor": OVG_ROSA_CLARO, "border": "none"}), width=12, md=9),
                     ], className="g-2")
                 ], md=6, className="d-flex flex-column h-100 mb-4 mb-md-0"), 
+                
                 dbc.Col([
-                    html.Div([dbc.Label("Resultado formatado:", className="fw-bold text-muted mb-0"), dbc.Badge("0 itens", id="badge-inscricoes-saida", color="info", className="ms-2", style={"backgroundColor": OVG_BLUE})], className="d-flex align-items-center mb-2"),
-                    html.Div([dbc.Textarea(id="output-inscricoes", readonly=True, style={"backgroundColor": "rgba(0,0,0,0.4)", "color": OVG_GREEN, "border": f"1px solid {OVG_GREEN}", "fontFamily": "monospace", "fontSize": "1rem", "height": "100%", "resize": "none"}),
-                        html.Div([dcc.Clipboard(target_id="output-inscricoes", title="Copiar", style={"fontSize": 24, "color": "white"})], style={"position": "absolute", "top": "15px", "right": "15px", "backgroundColor": OVG_GREEN, "padding": "8px 12px", "borderRadius": "8px", "cursor": "pointer", "boxShadow": "0 4px 10px rgba(0,0,0,0.3)"})
+                    html.Div([
+                        # 5. LABEL DE SAÍDA ALTERADO
+                        dbc.Label("Lista Formatada (Pronta para Filtro):", className="fw-bold text-muted mb-0"), 
+                        dbc.Badge("0 itens", id="badge-inscricoes-saida", style={"backgroundColor": OVG_ROSA_CLARO}, className="ms-2")
+                    ], className="d-flex align-items-center mb-2"),
+                    
+                    html.Div([
+                        dbc.Textarea(id="output-inscricoes", readonly=True, style={"backgroundColor": "rgba(0,0,0,0.4)", "color": OVG_ROSA_CLARO, "border": f"1px solid {OVG_ROSA_CLARO}", "fontFamily": "monospace", "height": "100%", "resize": "none"}),
+                        html.Div([dcc.Clipboard(target_id="output-inscricoes", style={"fontSize": 24, "color": "white"})], style={"position": "absolute", "top": "15px", "right": "15px", "backgroundColor": OVG_ROSA_CLARO, "padding": "8px 12px", "borderRadius": "8px", "cursor": "pointer"})
                     ], style={"position": "relative", "flex": "1"}), 
                 ], md=6, className="d-flex flex-column h-100"),
             ], style={"height": "65vh"}), 
-            dbc.Toast(id="toast-inscricoes", header="Sucesso", icon="success", duration=4000, is_open=False, dismissable=True, style={"position": "fixed", "top": 820, "right": 20, "width": 300, "zIndex": 1050}),
+            dbc.Toast(id="toast-inscricoes", header="Sucesso", icon="success", duration=4000, is_open=False, style={"position": "fixed", "bottom": 20, "right": 20, "width": 300}),
         ])
     ])
 
 # =============================================================================
-# 5. FERRAMENTA: PADRONIZADOR DE IES
+# 5. FERRAMENTA: NORMALIZADOR DE DADOS (Versão Final)
 # =============================================================================
 def layout_ferramenta_ies():
-    return html.Div(className="container-fluid p-3 p-md-5", children=[ 
-        html.Div(className="main-container", style={"minHeight": "85vh", "maxWidth": "1400px", "margin": "40px auto 0 auto"}, children=[
-            dbc.Row([
-                dbc.Col([html.H3([DashIconify(icon="lucide:graduation-cap", className="me-2", color=OVG_BLUE), "Padronizador de IES"], className="m-0 fw-bold"), html.Span("Limpeza e Padronização de Colunas do Excel", className="text-muted", style={"fontSize": "1.1rem"})]),
-                dbc.Col(dbc.Button([DashIconify(icon="lucide:arrow-left", width=25), "Voltar"], href="/softwares", color="light", outline=True, className="btn-nav"), width="auto", className="ms-auto")
-            ], className="mb-4 pb-3 border-bottom", style={"borderColor": "var(--border)"}),
+    # Cor real da logo OVG para esta ferramenta
+    OVG_ROSA_MEDIO = "#D45694" 
+
+    return html.Div(className="container-fluid p-3 p-md-4", children=[ 
+        html.Div(className="main-container", style={"minHeight": "85vh", "maxWidth": "1400px", "margin": "20px auto 0 auto"}, children=[
+            # --- Cabeçalho ---
             dbc.Row([
                 dbc.Col([
-                    html.Div([dbc.Label("Cole a coluna do Excel aqui:", className="fw-bold text-muted mb-0"), dbc.Badge("0 itens", id="badge-ies-entrada", color="secondary", className="ms-2", style={"backgroundColor": "#6c757d"})], className="d-flex align-items-center mb-2"),
-                    dbc.Textarea(id="input-ies", className="mb-3 flex-grow-1", style={"backgroundColor": "rgba(0,0,0,0.2)", "color": "white", "border": "1px solid var(--border)", "fontSize": "0.95rem", "resize": "none", "height": "100%"}, placeholder="Ex:\nFaculdade Unip\nPUC Goias\nUFG - Campus 1"),
-                    dbc.Card([dbc.CardBody([
-                            dbc.Label("Tipo de Saída:", className="fw-bold text-light small"),
-                            dbc.RadioItems(options=[{"label": "Valores Únicos (Remove repetidos)", "value": "unique"}, {"label": "Valores Correspondentes (Mesma ordem)", "value": "full"}], value="unique", id="radio-tipo-ies", inline=True, style={"color": "white"}, labelStyle={"marginRight": "20px"}),
-                        ], className="p-2")
-                    ], className="mb-3", style={"backgroundColor": "rgba(255,255,255,0.05)", "border": "none"}),
+                    html.H3([DashIconify(icon="lucide:graduation-cap", className="me-2", color=OVG_ROSA_MEDIO), "Normalizador de Dados"], className="m-0 fw-bold"), 
+                    html.Span("Limpeza e Padronização de Textos", className="text-muted", style={"fontSize": "1.1rem"})
+                ]),
+                dbc.Col(dbc.Button([DashIconify(icon="lucide:arrow-left-circle", width=25, className="me-2"), "Voltar"], href="/softwares", color="light", outline=True, className="btn-nav"), width="auto", className="ms-auto d-flex align-items-center")
+            ], className="mb-4 pb-3 border-bottom align-items-center", style={"borderColor": "var(--border)"}),
+            
+            # --- ÁREA DE TRABALHO ---
+            dbc.Row([
+                # =================================================================
+                # COLUNA ESQUERDA: Entrada + Configurações + Botões
+                # =================================================================
+                dbc.Col([
+                    html.Div([
+                        dbc.Label("Dados Originais (Coluna do Excel):", className="fw-bold text-muted mb-0"), 
+                        dbc.Badge("0 itens", id="badge-ies-entrada", color="secondary", className="ms-2")
+                    ], className="d-flex align-items-center mb-2"),
+                    
+                    dbc.Textarea(id="input-ies", className="mb-3", 
+                                 style={"backgroundColor": "rgba(0,0,0,0.2)", "color": "white", "border": "1px solid var(--border)", "fontSize": "0.95rem", "resize": "none", "height": "200px"}, 
+                                 placeholder="Cole sua lista aqui...\n\nExemplo:\nFaculdade Unip\nPUC Goias\nUFG - Campus 1"),
+                    
+                    # --- CARD DE CONFIGURAÇÕES ---
+                    dbc.Card([
+                        dbc.CardHeader("Configurações de Padronização", className="fw-bold small text-white py-2", style={"backgroundColor": "rgba(255,255,255,0.05)", "borderBottom": "1px solid rgba(255,255,255,0.1)"}),
+                        dbc.CardBody([
+                            # Linha 1: Formatação (Case)
+                            dbc.Row([
+                                dbc.Col([
+                                    dbc.Label("Formatação de Texto:", className="fw-bold text-muted small mb-1"),
+                                    dbc.RadioItems(
+                                        options=[
+                                            {"label": "Original", "value": "original"},
+                                            {"label": "MAIÚSCULO", "value": "upper"},
+                                            {"label": "minúsculo", "value": "lower"},
+                                            {"label": "Capitalize", "value": "title"},
+                                        ],
+                                        value="original", 
+                                        id="radio-case-ies",
+                                        inline=True,
+                                        style={"color": "white", "fontSize": "0.85rem"},
+                                        className="d-flex justify-content-between gap-2"
+                                    )
+                                ], width=12, className="mb-3"),
+                            ]),
+
+                            html.Hr(style={"borderColor": "rgba(255,255,255,0.1)", "margin": "5px 0 15px 0"}),
+
+                            # Linha 2: Opções Avançadas
+                            dbc.Row([
+                                dbc.Col([
+                                    # Switch: Remover Acentuação
+                                    dbc.Switch(
+                                        id="switch-accents-ies", 
+                                        label="Remover Acentuação", 
+                                        value=False, 
+                                        style={"color": "white", "fontSize": "0.9rem"}, 
+                                        className="mb-3"
+                                    ),
+                                    
+                                    # Tipo de Saída
+                                    dbc.Label("Tipo de Lista (Saída):", className="fw-bold text-muted small mb-1"),
+                                    dbc.RadioItems(
+                                        options=[
+                                            {"label": "Valores Correspondentes (Mesma ordem)", "value": "full"}, # MUDANÇA: Agora é o primeiro
+                                            {"label": "Valores Únicos (Remove repetidos)", "value": "unique"}
+                                        ], 
+                                        value="full", 
+                                        id="radio-tipo-ies", 
+                                        style={"color": "white", "fontSize": "0.85rem"},
+                                        labelStyle={"marginBottom": "5px"}
+                                    ),
+                                ], width=6, className="border-end border-secondary pe-3"), 
+
+                                dbc.Col([
+                                    # Input Caracteres
+                                    dbc.Label("Remover Caracteres Específicos:", className="fw-bold text-muted small mb-1"),
+                                    dbc.Input(
+                                        id="input-remove-chars-ies",
+                                        placeholder="Digite aqui... Ex: - . / ( ) A 1",
+                                        type="text",
+                                        style={"backgroundColor": "rgba(0,0,0,0.3)", "color": "white", "borderColor": "var(--border)", "fontSize": "0.9rem", "height": "38px"}
+                                    ),
+                                    # Texto de ajuda
+                                    dbc.FormText([
+                                        "Insira caracteres, letras ou números.", 
+                                        html.Br(), 
+                                        "Por padrão espaçamentos extras já são removidos."
+                                    ], color="muted", style={"fontSize": "0.75rem"}),
+                                ], width=6, className="ps-3"),
+                            ]),
+                        ], className="p-3")
+                    ], className="mb-3 flex-grow-0", style={"backgroundColor": "rgba(255,255,255,0.02)", "border": "1px solid var(--border)"}),
+                    
+                    # Botões
                     dbc.Row([
-                        dbc.Col(dbc.Button("LIMPAR", id="btn-limpar-ies", color="secondary", className="w-100 fw-bold py-2"), width=12, md=3, className="mb-2 mb-md-0"),
-                        dbc.Col(dbc.Button("PADRONIZAR", id="btn-processar-ies", className="w-100 fw-bold py-2", style={"backgroundColor": OVG_BLUE, "border": "none"}), width=12, md=9),
-                    ], className="g-2")
-                ], md=6, className="d-flex flex-column h-100 mb-4 mb-md-0"),
+                        dbc.Col(dbc.Button("LIMPAR", id="btn-limpar-ies", color="secondary", className="w-100 fw-bold py-2"), width=12, md=3),
+                        dbc.Col(dbc.Button("NORMALIZAR DADOS", id="btn-processar-ies", className="w-100 fw-bold py-2", style={"backgroundColor": OVG_ROSA_MEDIO, "border": "none"}), width=12, md=9),
+                    ], className="g-2 mt-auto")
+                    
+                ], md=6, className="d-flex flex-column mb-4 mb-md-0"),
+
+                # =================================================================
+                # COLUNA DIREITA: Saída
+                # =================================================================
                 dbc.Col([
-                    html.Div([dbc.Label("Resultado Padronizado:", className="fw-bold text-muted mb-0"), dbc.Badge("0 itens", id="badge-ies-saida", color="info", className="ms-2", style={"backgroundColor": OVG_BLUE})], className="d-flex align-items-center mb-2"),
-                    html.Div([dbc.Textarea(id="output-ies", readonly=True, style={"backgroundColor": "rgba(0,0,0,0.4)", "color": OVG_BLUE, "border": f"1px solid {OVG_BLUE}", "fontFamily": "monospace", "fontSize": "1rem", "height": "100%", "resize": "none"}),
-                        html.Div([dcc.Clipboard(target_id="output-ies", title="Copiar", style={"fontSize": 24, "color": "white"})], style={"position": "absolute", "top": "15px", "right": "15px", "backgroundColor": OVG_BLUE, "padding": "8px 12px", "borderRadius": "8px", "cursor": "pointer", "boxShadow": "0 4px 10px rgba(0,0,0,0.3)"})
-                    ], style={"position": "relative", "flex": "1"}),
-                ], md=6, className="d-flex flex-column h-100"),
-            ], style={"height": "65vh"}),
-            dbc.Toast(id="toast-ies", header="Processado", icon="info", duration=4000, is_open=False, dismissable=True, style={"position": "fixed", "top": 820, "right": 20, "width": 300, "zIndex": 1050}),
+                    html.Div([
+                        dbc.Label("Dados Normalizados:", className="fw-bold text-muted mb-0"), 
+                        dbc.Badge("0 itens", id="badge-ies-saida", style={"backgroundColor": OVG_ROSA_MEDIO}, className="ms-2")
+                    ], className="d-flex align-items-center mb-2"),
+                    
+                    html.Div([
+                        dbc.Textarea(
+                            id="output-ies", 
+                            readonly=True, 
+                            style={
+                                "backgroundColor": "rgba(0,0,0,0.4)", 
+                                "color": OVG_ROSA_MEDIO, 
+                                "border": f"1px solid {OVG_ROSA_MEDIO}", 
+                                "fontFamily": "monospace", 
+                                "fontSize": "1rem", 
+                                "flex": "1",
+                                "width": "100%",
+                                "resize": "none", 
+                                "minHeight": "400px"
+                            }
+                        ),
+                        html.Div([
+                            dcc.Clipboard(target_id="output-ies", title="Copiar", style={"fontSize": 24, "color": "white"})
+                        ], style={
+                            "position": "absolute", "top": "15px", "right": "15px", 
+                            "backgroundColor": OVG_ROSA_MEDIO, "padding": "8px 12px", 
+                            "borderRadius": "8px", "cursor": "pointer", 
+                            "boxShadow": "0 4px 10px rgba(0,0,0,0.3)"
+                        })
+                    ], className="d-flex flex-column flex-grow-1 position-relative h-100"),
+                    
+                ], md=6, className="d-flex flex-column"),
+                
+            ], className="flex-grow-1"),
+            
+            # TOAST (Notificação)
+            dbc.Toast(id="toast-ies", header="Processado", icon="info", duration=5000, is_open=False, dismissable=True, style={"position": "fixed", "bottom": 20, "right": 20, "width": 350, "zIndex": 1050}),
         ])
     ])
-
+    
 # =============================================================================
 # 6. GESTÃO DE ACESSOS (Dashboard Admin)
 # =============================================================================
 
 def gerar_linhas_usuarios(df):
-    """Gera as linhas da tabela HTML com base em um DataFrame de usuários."""
+    """Gera as linhas da tabela com ícones de ação centralizados."""
     rows = []
     for index, row in df.iterrows():
         is_main_admin = (row['id'] == 1) 
         rows.append(html.Tr([
-            html.Td(row['id']), 
-            html.Td(f"{row['primeiro_nome']} {row['ultimo_nome']}"), 
-            html.Td(row['username']), 
-            html.Td(row['email']), 
-            html.Td("Admin" if row['is_admin'] else "Usuário"),
+            html.Td(row['id'], style={"verticalAlign": "middle"}), 
+            html.Td(f"{row['primeiro_nome']} {row['ultimo_nome']}", style={"verticalAlign": "middle"}), 
+            html.Td(row['username'], style={"verticalAlign": "middle"}), 
+            html.Td(row['email'], style={"verticalAlign": "middle"}), 
+            html.Td("Admin" if row['is_admin'] else "Usuário", style={"verticalAlign": "middle"}),
             html.Td([
-                dbc.Button(DashIconify(icon="lucide:edit", width=18), id={"type": "btn-edit-user", "index": row['id']}, style={"backgroundColor": OVG_YELLOW, "border": "none", "color": "#333"}, size="sm", className="me-2", n_clicks=0),
-                dbc.Button(DashIconify(icon="lucide:trash-2", width=18), id={"type": "btn-delete-user", "index": row['id']}, color="danger", size="sm", n_clicks=0, disabled=is_main_admin)
-            ], style={"textAlign": "center"})
+                dbc.Button(
+                    DashIconify(icon="lucide:user-cog", width=18), 
+                    id={"type": "btn-edit-user", "index": row['id']}, 
+                    style={
+                        "backgroundColor": "#FFCE54", "border": "none", "color": "#333",
+                        "display": "inline-flex", "alignItems": "center", "justifyContent": "center",
+                        "padding": "8px"
+                    }, 
+                    size="sm", className="me-2", n_clicks=0
+                ),
+                dbc.Button(
+                    DashIconify(icon="lucide:user-minus", width=18), 
+                    id={"type": "btn-delete-user", "index": row['id']}, 
+                    color="danger", size="sm", n_clicks=0, disabled=is_main_admin,
+                    style={
+                        "display": "inline-flex", "alignItems": "center", "justifyContent": "center",
+                        "padding": "8px"
+                    }
+                )
+            ], style={"textAlign": "center", "verticalAlign": "middle"})
         ]))
     return rows
 
 def layout_dashboard_admin():
-    """Tela de administração de usuários (CRUD)."""
+    """Tela de administração: Texto rosa e borda inferior rosa forçada nas células."""
+    OVG_ROSA_CLARO = "#F08EB3"
+    
     df = listar_todos_usuarios()
     rows = gerar_linhas_usuarios(df)
     
+    # --- ESTILO DO CABEÇALHO ---
+    # Aplicamos a borda diretamente na célula (TH) para vencer o estilo do Bootstrap
+    style_th = {
+        "color": OVG_ROSA_CLARO,            # Texto Rosa
+        "borderBottom": f"1px solid {OVG_ROSA_CLARO}", # Borda Rosa (forçada na célula)
+        "borderTop": "none",                # Remove borda de cima para limpar
+        "verticalAlign": "middle",
+        "fontWeight": "bold"
+    }
+
+    # Removemos o style da Tr/Thead e deixamos o estilo apenas nas células (th)
     tabela_header = [html.Thead(html.Tr([
-        html.Th("ID"), html.Th("Nome"), html.Th("Login"), html.Th("Email"), html.Th("Perfil"), html.Th("Ações", style={"textAlign": "center"})
-    ]))]
+        html.Th("ID", style=style_th), 
+        html.Th("Nome", style=style_th), 
+        html.Th("Login", style=style_th), 
+        html.Th("Email", style=style_th), 
+        html.Th("Perfil", style=style_th), 
+        html.Th("Ações", style={**style_th, "textAlign": "center"}) 
+    ]))] 
     
     return html.Div(className="container-fluid p-4", children=[
-        html.Div(className="main-container", style={"minHeight": "80vh", "maxWidth": "1400px", "margin": "40px auto 0 auto"}, children=[
-            dbc.Row([
-                dbc.Col(html.H3("Gestão de Acessos", className="fw-bold"), width=8), 
-                dbc.Col(dbc.Button([DashIconify(icon="lucide:arrow-left", width=22), "Voltar"], href="/home", color="light", outline=True, className="btn-nav"), width=4, className="text-end")
-            ], className="mb-4 pb-3 border-bottom", style={"borderColor": "var(--border)"}),
+        html.Div(className="main-container", style={"minHeight": "80vh", "maxWidth": "1400px", "margin": "20px auto 0 auto"}, children=[
             
-            # --- Barra de Pesquisa e Botão Novo ---
+            dbc.Row([
+                dbc.Col(html.Img(src="/assets/logo.png", style={"height": "60px"}), width="auto"),
+                dbc.Col([
+                    html.H3("Gestão de Acessos", className="m-0 fw-bold", style={"lineHeight": "1.2", "color": "white"}), 
+                    html.Span("Controle de permissões e usuários", className="text-muted", style={"fontSize": "1rem", "display": "block"})
+                ], className="ps-3 d-flex flex-column justify-content-center"),
+                dbc.Col(
+                    dbc.Button([DashIconify(icon="lucide:arrow-left-circle", width=22, className="me-2"), "Voltar"], 
+                               href="/home", color="light", outline=True, className="btn-nav"), 
+                    width="auto", className="ms-auto d-flex align-items-center"
+                )
+            ], className="mb-4 pb-3 border-bottom align-items-center", style={"borderColor": "var(--border)"}),
+            
             dbc.Row([
                 dbc.Col([
                     dbc.InputGroup([
-                        dbc.InputGroupText(DashIconify(icon="lucide:search")),
+                        dbc.InputGroupText(DashIconify(icon="lucide:user-search", width=20, color=OVG_ROSA_CLARO)),
                         dbc.Input(id="input-pesquisa-usuario", placeholder="Buscar por nome, login ou email...", type="text"),
-                    ], className="mb-3")
+                    ], className="mb-3", style={"backgroundColor": "transparent", "maxWidth": "800px"}),
                 ], width=12, md=8),
                 dbc.Col([
-                    dbc.Button([DashIconify(icon="lucide:plus", className="me-2"), "Novo Usuário"], id="btn-novo-usuario", className="mb-3 w-100 fw-bold", style={"backgroundColor": OVG_PURPLE, "border": "none", "color": "white", "borderRadius": "8px"}, n_clicks=0),
-                ], width=12, md=4)
-            ]),
+                    dbc.Button([
+                        DashIconify(icon="lucide:user-plus-2", className="me-2", width=20), 
+                        "Novo Usuário"
+                    ], id="btn-novo-usuario", 
+                       className="w-100 fw-bold d-flex align-items-center justify-content-center", 
+                       style={
+                           "backgroundColor": OVG_ROSA_CLARO,
+                           "border": "none", 
+                           "color": "white", 
+                           "borderRadius": "10px",
+                           "height": "40px",
+                           "marginTop": "1px",
+                       }, n_clicks=0),
+                ], width=12, md=4, className="mb-3") 
+            ], className="align-items-start"),
 
-            # Tabela agora tem um ID no corpo para o callback de pesquisa
-            dbc.Table(tabela_header + [html.Tbody(rows, id="tabela-usuarios-body")], bordered=True, hover=True, responsive=True, striped=True, className="table-dark"),
+            dbc.Table(
+                tabela_header + [html.Tbody(rows, id="tabela-usuarios-body")], 
+                bordered=True, hover=True, responsive=True, striped=True, className="table-dark",
+                style={"--bs-table-border-color": "var(--border)"} 
+            ),
             
             html.Div(id="container-modais") 
         ])
     ])
 
 def componentes_modais_admin():
+    """Modais de administração com cabeçalho e ícones em Rosa Claro."""
+    OVG_ROSA_CLARO = "#F08EB3"
+
     return html.Div([
         dbc.Modal([
-            dbc.ModalHeader(dbc.ModalTitle(id="modal-titulo-usuario")),
+            dbc.ModalHeader(
+                dbc.ModalTitle(id="modal-titulo-usuario", className="fw-bold"),
+                close_button=True,
+                style={"borderBottom": f"2px solid {OVG_ROSA_CLARO}"} 
+            ),
             dbc.ModalBody([
-                dbc.Row([dbc.Col([dbc.Checkbox(id="check-is-admin", label="Admin", style={"fontWeight": "bold", "color": OVG_PINK})], className="d-flex justify-content-end mb-2")]),
-                dbc.Row([dbc.Col([dbc.Label("Primeiro Nome"), dbc.Input(id="input-primeiro-nome")], width=6), dbc.Col([dbc.Label("Último Nome"), dbc.Input(id="input-ultimo-nome")], width=6)], className="mb-3"),
-                dbc.Label("E-mail (@ovg.org.br)"), dbc.Input(id="input-email", type="email", placeholder="nome@ovg.org.br", className="mb-3"),
-                dbc.Label("Senha"), dbc.Input(id="input-senha", type="password", placeholder="Mín. 8 caracteres | 1 Maiúscula | 2 Números | 1 Símbolo", className="mb-2"), dbc.Input(id="input-senha-confirma", type="password", placeholder="Confirme", className="mb-2"),
-                dbc.Checkbox(id="check-mostrar-senha-admin", label="Mostrar senha", className="mb-3"),
+                html.Div([
+                    DashIconify(icon="lucide:user-cog", width=50, color=OVG_ROSA_CLARO, className="mb-3"),
+                    html.P("Preencha os dados abaixo para gerenciar o acesso do colaborador.", className="text-muted small")
+                ], className="text-center mb-4"),
+
+                dbc.Row([
+                    dbc.Col([
+                        dbc.Checkbox(
+                            id="check-is-admin", 
+                            label="Privilégios de Administrador", 
+                            style={"fontWeight": "bold", "color": OVG_ROSA_CLARO}
+                        )
+                    ], className="d-flex justify-content-end mb-3")
+                ]),
+
+                dbc.Row([
+                    dbc.Col([
+                        dbc.Label("Primeiro Nome", className="fw-bold small"), 
+                        dbc.Input(id="input-primeiro-nome", placeholder="Ex: João")
+                    ], width=6),
+                    dbc.Col([
+                        dbc.Label("Último Nome", className="fw-bold small"), 
+                        dbc.Input(id="input-ultimo-nome", placeholder="Ex: Silva")
+                    ], width=6)
+                ], className="mb-3"),
+
+                dbc.Label("E-mail Corporativo (@ovg.org.br)", className="fw-bold small"), 
+                dbc.Input(id="input-email", type="email", placeholder="email@ovg.org.br", className="mb-3"),
+
+                html.Div([
+                    dbc.Label("Senha do Sistema", className="fw-bold small"),
+                    dbc.Input(id="input-senha", type="password", placeholder="Digite a senha", className="mb-2"),
+                    dbc.Input(id="input-senha-confirma", type="password", placeholder="Confirme a senha", className="mb-2"),
+                    dbc.Checkbox(id="check-mostrar-senha-admin", label="Mostrar caracteres da senha", className="small text-muted"),
+                ], className="mb-2"),
+
                 html.Div(id="alert-modal-usuario", className="mt-3")
-            ]),
-            dbc.ModalFooter([dbc.Button("Cancelar", id="btn-cancelar-modal", color="secondary"), dbc.Button("Salvar", id="btn-salvar-usuario", style={"backgroundColor": OVG_PURPLE, "border": "none"})])
-        ], id="modal-usuario", is_open=False, size="lg", backdrop="static"),
+            ], className="px-4 py-4"),
+            dbc.ModalFooter([
+                dbc.Button("CANCELAR", id="btn-cancelar-modal", color="light", className="px-4 fw-bold me-2", style={"opacity": "0.8"}),
+                dbc.Button("SALVAR ALTERAÇÕES", id="btn-salvar-usuario", 
+                           style={"backgroundColor": OVG_ROSA_CLARO, "border": "none", "color": "white"},
+                           className="px-4 fw-bold")
+            ], style={"borderTop": "1px solid var(--border)"})
+        ], id="modal-usuario", is_open=False, size="lg", centered=True, backdrop="static"),
         
         dbc.Modal([
-            dbc.ModalHeader(dbc.ModalTitle("Confirmar Exclusão")),
-            dbc.ModalBody("Tem certeza que deseja excluir este usuário?"),
-            dbc.ModalFooter([dbc.Button("Cancelar", id="btn-cancelar-delete", color="secondary"), dbc.Button("Excluir", id="btn-confirmar-delete", color="danger")])
-        ], id="modal-delete", is_open=False),
-        dcc.Store(id="store-edit-id", data=None), dcc.Store(id="store-delete-id", data=None)
+            dbc.ModalHeader(dbc.ModalTitle("Confirmar Exclusão", className="fw-bold text-danger")),
+            dbc.ModalBody([
+                html.Div([
+                    DashIconify(icon="lucide:alert-triangle", width=50, color="#dc3545", className="mb-3"),
+                    html.H5("Você tem certeza?", className="fw-bold"),
+                    html.P("Esta ação não poderá ser desfeita.", className="text-muted")
+                ], className="text-center p-3")
+            ]),
+            dbc.ModalFooter([
+                dbc.Button("NÃO, CANCELAR", id="btn-cancelar-delete", color="light", className="fw-bold me-2"),
+                dbc.Button("SIM, EXCLUIR", id="btn-confirmar-delete", color="danger", className="fw-bold")
+            ])
+        ], id="modal-delete", is_open=False, centered=True),
+
+        dcc.Store(id="store-edit-id", data=None), 
+        dcc.Store(id="store-delete-id", data=None)
     ])

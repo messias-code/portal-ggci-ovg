@@ -1,10 +1,10 @@
 """
 =============================================================================
-ARQUIVO PRINCIPAL (ENTRY POINT)
+ARQUIVO PRINCIPAL (ENTRY POINT) - ATUALIZADO
 =============================================================================
 """
 import dash
-from dash import dcc, html, Input, Output, State, callback, ctx, no_update, ALL
+from dash import dcc, html, Input, Output, State, callback, ctx, no_update, ALL, callback_context
 import dash_bootstrap_components as dbc
 import unicodedata
 import re
@@ -26,7 +26,7 @@ from src.layouts import (
     layout_ferramenta_ies,
     layout_dashboard_admin,
     componentes_modais_admin,
-    gerar_linhas_usuarios  # <--- NOVA IMPORTAÇÃO
+    gerar_linhas_usuarios
 )
 
 app = dash.Dash(__name__, external_stylesheets=[dbc.themes.DARKLY], suppress_callback_exceptions=True)
@@ -39,18 +39,13 @@ app.layout = html.Div([
 ])
 
 # =============================================================================
-# FUNÇÕES AUXILIARES LOCAIS
+# FUNÇÕES AUXILIARES GERAIS
 # =============================================================================
 
-def normalizar_texto_padrao(texto):
-    if not texto: return ""
-    texto = str(texto).strip()
-    texto = unicodedata.normalize("NFKD", texto)
-    texto = "".join(c for c in texto if not unicodedata.combining(c))
-    texto = texto.upper()
-    texto = re.sub(r"[^A-Z0-9\s\(\)\-]", "", texto)
-    texto = re.sub(r"\s+", " ", texto)
-    return texto
+def remove_acentos(texto):
+    """Remove acentuação de uma string."""
+    if not isinstance(texto, str): return str(texto)
+    return ''.join(c for c in unicodedata.normalize('NFD', texto) if unicodedata.category(c) != 'Mn')
 
 # =============================================================================
 # ROTEADOR DE PÁGINAS (ROUTER)
@@ -155,81 +150,154 @@ def notificar_acesso_negado(n_clicks):
     return True
 
 # =============================================================================
-# CALLBACKS: FERRAMENTAS
+# CALLBACKS: FERRAMENTAS (NORMALIZADOR E FORMATADOR)
 # =============================================================================
 
+# --- 1. NORMALIZADOR DE DADOS (Callback com validação e Texto Curto) ---
 @callback(
-    [Output("output-ies", "value"), Output("input-ies", "value"), Output("badge-ies-saida", "children"), Output("badge-ies-entrada", "children"), Output("toast-ies", "children"), Output("toast-ies", "is_open")],
-    [Input("btn-processar-ies", "n_clicks"), Input("btn-limpar-ies", "n_clicks")],
-    [State("input-ies", "value"), State("radio-tipo-ies", "value")],
+    [Output("output-ies", "value"),
+     Output("badge-ies-entrada", "children"),
+     Output("badge-ies-saida", "children"),
+     Output("toast-ies", "children"),
+     Output("toast-ies", "is_open"),
+     Output("input-ies", "value"),
+     Output("toast-ies", "header"),
+     Output("toast-ies", "icon")],
+    [Input("btn-processar-ies", "n_clicks"),
+     Input("btn-limpar-ies", "n_clicks")],
+    [State("input-ies", "value"),
+     State("radio-case-ies", "value"),
+     State("switch-accents-ies", "value"),
+     State("radio-tipo-ies", "value"),
+     State("input-remove-chars-ies", "value")]
+)
+def processar_normalizacao_avancada(n_processar, n_limpar, texto_entrada, case_type, remove_accents, output_type, remove_chars):
+    ctx_trigger = callback_context
+    if not ctx_trigger.triggered:
+        return no_update, no_update, no_update, no_update, False, no_update, "Processado", "info"
+        
+    button_id = ctx_trigger.triggered[0]['prop_id'].split('.')[0]
+
+    if button_id == "btn-limpar-ies":
+        return "", "0 itens", "0 itens", "", False, "", "Limpeza", "secondary"
+
+    if not texto_entrada:
+        return "", "0 itens", "0 itens", "Nenhum dado inserido.", True, no_update, "Atenção", "warning"
+
+    # --- VALIDAÇÃO ---
+    alerta_espaco = False
+    chars_to_remove_regex = ""
+    
+    if remove_chars:
+        if " " in remove_chars:
+            alerta_espaco = True
+            remove_chars = remove_chars.replace(" ", "") # Remove o espaço da lógica
+        
+        if remove_chars:
+            try:
+                chars_to_remove_regex = f"[{re.escape(remove_chars)}]"
+            except:
+                pass
+
+    # --- PROCESSAMENTO ---
+    linhas = [line.strip() for line in texto_entrada.split('\n') if line.strip()]
+    count_entrada = len(linhas)
+    lista_processada = []
+
+    for item in linhas:
+        if case_type == "upper": item = item.upper()
+        elif case_type == "lower": item = item.lower()
+        elif case_type == "title": item = item.title()
+        
+        if remove_accents: item = remove_acentos(item)
+        
+        if chars_to_remove_regex:
+            item = re.sub(chars_to_remove_regex, "", item)
+        
+        # Limpeza padrão de espaços
+        item = " ".join(item.split())
+        
+        if item: lista_processada.append(item)
+
+    if output_type == "unique":
+        lista_final = list(dict.fromkeys(lista_processada))
+    else:
+        lista_final = lista_processada
+
+    resultado_texto = "\n".join(lista_final)
+    count_saida = len(lista_final)
+    
+    # MENSAGEM CURTA AQUI:
+    if alerta_espaco:
+        msg_toast = "Aviso: Espaços extras já são removidos automaticamente."
+        header_toast = "Aviso"
+        icon_toast = "warning"
+    else:
+        msg_toast = f"Sucesso! {count_saida} registros processados."
+        header_toast = "Concluído"
+        icon_toast = "success"
+
+    return resultado_texto, f"{count_entrada} itens", f"{count_saida} itens", msg_toast, True, no_update, header_toast, icon_toast
+
+# --- 2. FORMATADOR DE LISTAS (Antigo Inscrições) ---
+@callback(
+    [Output("output-inscricoes", "value"), 
+     Output("input-inscricoes", "value"), 
+     Output("badge-inscricoes-saida", "children"), 
+     Output("badge-inscricoes-entrada", "children"), 
+     Output("toast-inscricoes", "children"), 
+     Output("toast-inscricoes", "is_open")],
+    [Input("btn-processar-inscricoes", "n_clicks"), 
+     Input("btn-limpar-inscricoes", "n_clicks")],
+    [State("input-inscricoes", "value")], 
     prevent_initial_call=True
 )
-def ferramenta_ies(n_process, n_clear, texto_entrada, tipo_saida):
+def processar_formatador_listas(n_gerar, n_limpar, texto_entrada):
     trigger = ctx.triggered_id
-    if trigger == "btn-limpar-ies": return "", "", "0 itens", "0 itens", "", False
-    if trigger == "btn-processar-ies":
-        if not texto_entrada: return no_update, no_update, no_update, no_update, no_update, no_update
-        linhas = [l for l in texto_entrada.split("\n") if l.strip()]
-        qtd_entrada = len(linhas)
-        linhas_normalizadas = [normalizar_texto_padrao(linha) for linha in linhas]
-        if tipo_saida == "unique":
-            lista_final = sorted(list(set(linhas_normalizadas)))
-            lista_final = [x for x in lista_final if x] 
-            texto_final = "\n".join(lista_final)
-            qtd_saida = len(lista_final)
-            msg_toast = f"Concluído! {qtd_saida} nomes únicos gerados."
-            badge_saida = f"{qtd_saida} únicos"
-        else:
-            texto_final = "\n".join(linhas_normalizadas)
-            qtd_saida = len(linhas_normalizadas)
-            msg_toast = f"Concluído! {qtd_saida} linhas processadas."
-            badge_saida = f"{qtd_saida} itens"
-        return texto_final, no_update, badge_saida, f"{qtd_entrada} itens", msg_toast, True
-    return no_update, no_update, no_update, no_update, no_update, no_update
-
-@callback(
-    [Output("output-inscricoes", "value"), Output("input-inscricoes", "value"), Output("badge-inscricoes-saida", "children"), Output("badge-inscricoes-entrada", "children"), Output("toast-inscricoes", "children"), Output("toast-inscricoes", "is_open")],
-    [Input("btn-processar-inscricoes", "n_clicks"), Input("btn-limpar-inscricoes", "n_clicks")],
-    [State("input-inscricoes", "value")], prevent_initial_call=True
-)
-def ferramenta_inscricoes(n_gerar, n_limpar, texto_entrada):
-    trigger = ctx.triggered_id
-    if trigger == "btn-limpar-inscricoes": return "", "", "0 itens", "0 itens", "", False 
+    
+    if trigger == "btn-limpar-inscricoes": 
+        return "", "", "0 itens", "0 itens", "", False 
+        
     if trigger == "btn-processar-inscricoes":
-        if not texto_entrada: return no_update, no_update, no_update, no_update, no_update, no_update
+        if not texto_entrada: 
+            return no_update, no_update, no_update, no_update, no_update, no_update
+            
         linhas = [linha.strip() for linha in texto_entrada.split("\n") if linha.strip()]
         qtd_entrada = len(linhas)
+        
+        # Remove duplicatas e ordena
         linhas_unicas = sorted(list(set(linhas)))
+        
+        # Formata com vírgula para SQL/Filtros
         resultado = ",".join(linhas_unicas)
+        
         qtd_saida = len(linhas_unicas)
         duplicatas = qtd_entrada - qtd_saida
+        
         msg_toast = f"Gerado! {qtd_saida} únicos. ({duplicatas} duplicatas removidas)" if duplicatas > 0 else f"Sucesso! {qtd_saida} itens processados."
+        
         return resultado, no_update, f"{qtd_saida} únicos", f"{qtd_entrada} itens", msg_toast, True
+        
     return no_update, no_update, no_update, no_update, no_update, no_update
 
 # =============================================================================
 # CALLBACKS: ADMINISTRAÇÃO (CRUD)
 # =============================================================================
 
-# --- NOVO CALLBACK DE PESQUISA ---
 @callback(
     Output("tabela-usuarios-body", "children"),
     Input("input-pesquisa-usuario", "value")
 )
 def filtrar_usuarios_tabela(termo_pesquisa):
-    """Filtra a tabela de usuários em tempo real."""
     df = listar_todos_usuarios()
-    
     if termo_pesquisa:
         termo = termo_pesquisa.lower()
-        # Filtra se o termo aparecer em Nome, Sobrenome, Email ou Username
         df = df[
             df['primeiro_nome'].str.lower().str.contains(termo) |
             df['ultimo_nome'].str.lower().str.contains(termo) |
             df['username'].str.lower().str.contains(termo) |
             df['email'].str.lower().str.contains(termo)
         ]
-    
     return gerar_linhas_usuarios(df)
 
 @callback([Output("input-senha", "type"), Output("input-senha-confirma", "type")], Input("check-mostrar-senha-admin", "value"), prevent_initial_call=True)
@@ -244,9 +312,7 @@ def admin_gerenciar_usuario(btn_new, btn_edit, btn_cancel, btn_save, is_open, ed
         return True, "Cadastrar Usuário", None, "", "", "", False, "", "", ""
         
     if isinstance(trigger, dict) and trigger['type'] == 'btn-edit-user':
-        # CORREÇÃO CRÍTICA: Verifica se o botão foi REALMENTE clicado (ignora criação automática)
         if not btn_edit or not any(btn_edit): return no_update
-        
         user_data = buscar_usuario_por_id(trigger['index'])
         if user_data: 
             return True, "Editar Usuário", trigger['index'], user_data['primeiro_nome'], user_data['ultimo_nome'], user_data['email'], bool(user_data['is_admin']), "", "", ""
@@ -277,7 +343,6 @@ def admin_delete_flow(btn_trash, btn_cancel, btn_confirm, del_id):
     if not trigger: return no_update
     
     if isinstance(trigger, dict):
-        # CORREÇÃO CRÍTICA: Verifica se o botão foi REALMENTE clicado
         if not btn_trash or not any(btn_trash): return no_update
         return True, trigger['index']
         
