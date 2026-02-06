@@ -1,1 +1,1 @@
-6. poder escolher a forma que queremos padronizar a saida (menusculo, maiusculo, captalize e uma barra pro usuario por quais caracteres especiais remover)
+1. no padronizador escolher forma de padronizar, pra por vigula apos colar coluna do excel, ou trazer o inverso, por com virgula, para ele padronizar um embaixo no outro sem virgula, ou seja, o inverso.
