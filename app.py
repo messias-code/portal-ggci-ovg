@@ -1,6 +1,6 @@
 """
 =============================================================================
-ARQUIVO PRINCIPAL (ENTRY POINT) - ATUALIZADO
+ARQUIVO PRINCIPAL (ENTRY POINT) - ATUALIZADO COM CORREÇÃO DE COPY (AMBOS)
 =============================================================================
 """
 import dash
@@ -206,7 +206,6 @@ def processar_normalizacao_avancada(n_processar, n_limpar, texto_entrada, case_t
 
     for item in linhas:
         # 1. PRIMEIRO: Remove Caracteres Específicos (No texto original)
-        # Isso garante que se eu mandar remover "A", ele remove só o maiúsculo antes de virar tudo maiúsculo.
         if chars_to_remove_regex:
             item = re.sub(chars_to_remove_regex, "", item)
 
@@ -215,7 +214,6 @@ def processar_normalizacao_avancada(n_processar, n_limpar, texto_entrada, case_t
             item = remove_acentos(item)
 
         # 3. TERCEIRO: Aplica a Formatação (Case)
-        # Agora sim, o que sobrou é formatado.
         if case_type == "upper": 
             item = item.upper()
         elif case_type == "lower": 
@@ -360,6 +358,78 @@ def admin_delete_flow(btn_trash, btn_cancel, btn_confirm, del_id):
         if del_id: excluir_usuario(del_id)
         return False, None
     return no_update
+
+# =============================================================================
+# CALLBACKS CLIENTSIDE: CÓPIA SEGURA (FUNCIONAM EM HTTP/REDE)
+# =============================================================================
+# Estes scripts rodam no navegador para garantir que o texto seja copiado 
+# mesmo sem HTTPS, usando um fallback de 'textarea' temporária.
+
+# 1. Cópia do NORMALIZADOR DE DADOS
+app.clientside_callback(
+    """
+    function(n_clicks, text) {
+        if (n_clicks > 0 && text) {
+            if (navigator.clipboard && window.isSecureContext) {
+                navigator.clipboard.writeText(text);
+            } else {
+                let textArea = document.createElement("textarea");
+                textArea.value = text;
+                textArea.style.position = "fixed";
+                textArea.style.left = "-9999px";
+                document.body.appendChild(textArea);
+                textArea.focus();
+                textArea.select();
+                try {
+                    document.execCommand('copy');
+                } catch (err) {
+                    console.error('Erro ao copiar fallback', err);
+                }
+                document.body.removeChild(textArea);
+            }
+            return true;
+        }
+        return window.dash_clientside.no_update;
+    }
+    """,
+    Output("toast-copy-success", "is_open"), # Toast do Normalizador
+    Input("btn-copiar-manual", "n_clicks"),  # Botão do Normalizador
+    State("output-ies", "value"),            # Texto do Normalizador
+    prevent_initial_call=True
+)
+
+# 2. Cópia do FORMATADOR DE LISTAS
+app.clientside_callback(
+    """
+    function(n_clicks, text) {
+        if (n_clicks > 0 && text) {
+            if (navigator.clipboard && window.isSecureContext) {
+                navigator.clipboard.writeText(text);
+            } else {
+                let textArea = document.createElement("textarea");
+                textArea.value = text;
+                textArea.style.position = "fixed";
+                textArea.style.left = "-9999px";
+                document.body.appendChild(textArea);
+                textArea.focus();
+                textArea.select();
+                try {
+                    document.execCommand('copy');
+                } catch (err) {
+                    console.error('Erro ao copiar fallback', err);
+                }
+                document.body.removeChild(textArea);
+            }
+            return true;
+        }
+        return window.dash_clientside.no_update;
+    }
+    """,
+    Output("toast-copy-lista-success", "is_open"), # Toast do Formatador
+    Input("btn-copiar-lista", "n_clicks"),         # Botão do Formatador
+    State("output-inscricoes", "value"),           # Texto do Formatador
+    prevent_initial_call=True
+)
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8050, debug=True)

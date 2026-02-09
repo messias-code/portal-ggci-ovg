@@ -168,7 +168,6 @@ def layout_menu_softwares(user_data):
                 dbc.Col(html.Img(src="/assets/logo.png", style={"height": "50px"}), width="auto"),
                 dbc.Col([
                     html.H3("Ferramentas", className="m-0 fw-bold"), 
-                    # MUDANÇA 1: Subtítulo mais profissional
                     html.Span("Otimização de Rotinas Administrativas", className="text-muted", style={"fontSize": "1.1rem"})
                 ], className="ps-3"),
                 dbc.Col(dbc.Button([DashIconify(icon="lucide:arrow-left-circle", width=22, className="me-2"), "Voltar"], href="/home", color="light", outline=True, className="btn-nav"), width="auto", className="ms-auto")
@@ -178,9 +177,7 @@ def layout_menu_softwares(user_data):
                 # 1. Formatador de Listas (Antigo Padronizador de Inscrições)
                 dbc.Col([dcc.Link(html.Div(className="app-card-hover", children=[
                             DashIconify(icon="lucide:brain-circuit", width=65, color=OVG_ROSA_CLARO), 
-                            # MUDANÇA 2: Título focado na ação
                             html.H5("Formatador de Listas", className="mt-4 text-center fw-bold", style={"color": "white", "marginBottom": "5px"}),
-                            # MUDANÇA 3: Descrição focada no resultado
                             html.Span("Preparo de inscrições para consultas", className="text-center small text-muted", style={"fontSize": "0.85rem"})
                         ], style=estilo_card_menu(OVG_ROSA_CLARO)), href="/softwares/gerador-lista", style={"textDecoration": "none"})
                 ], width="100%", md="auto", className="m-3 d-flex justify-content-center"),
@@ -188,9 +185,7 @@ def layout_menu_softwares(user_data):
                 # 2. Normalizador de Dados (Antigo Padronizador de IES)
                 dbc.Col([dcc.Link(html.Div(className="app-card-hover", children=[
                             DashIconify(icon="lucide:graduation-cap", width=65, color=OVG_ROSA_MEDIO), 
-                            # MUDANÇA 4: Título mais profissional
                             html.H5("Normalizador de Dados", className="mt-4 text-center fw-bold", style={"color": "white", "marginBottom": "5px"}),
-                            # MUDANÇA 5: Descrição clara do benefício
                             html.Span("Padronização e correção de registros", className="text-center small text-muted", style={"fontSize": "0.85rem"})
                         ], style=estilo_card_menu(OVG_ROSA_MEDIO)), href="/softwares/padronizador-ies", style={"textDecoration": "none"})
                 ], width="100%", md="auto", className="m-3 d-flex justify-content-center"),
@@ -201,65 +196,122 @@ def layout_menu_softwares(user_data):
 # =============================================================================
 # 4. FERRAMENTA: PADRONIZADOR DE INSCRIÇÕES (Agora Formatador de Listas)
 # =============================================================================
+# Em src/layouts.py
+
 def layout_ferramenta_inscricoes():
     OVG_ROSA_CLARO = "#F08EB3"
     
     return html.Div(className="container-fluid p-3 p-md-4", children=[ 
-        html.Div(className="main-container", style={"minHeight": "85vh", "maxWidth": "1400px", "margin": "20px auto 0 auto"}, children=[
+        # Container Principal (Flex Column para ocupar altura total)
+        html.Div(className="main-container d-flex flex-column", style={"minHeight": "85vh", "maxWidth": "1400px", "margin": "20px auto 0 auto"}, children=[
+            
+            # --- Cabeçalho ---
             dbc.Row([
                 dbc.Col([
-                    # 1. TÍTULO ALTERADO
                     html.H3([DashIconify(icon="lucide:brain-circuit", className="me-2", color=OVG_ROSA_CLARO), "Formatador de Listas"], className="m-0 fw-bold"), 
-                    # 2. SUBTÍTULO ALTERADO
                     html.Span("Formatação automática para filtros SQL e Planilhas", className="text-muted", style={"fontSize": "1.1rem"})
                 ]),
                 dbc.Col(dbc.Button([DashIconify(icon="lucide:arrow-left-circle", width=25, className="me-2"), "Voltar"], href="/softwares", color="light", outline=True, className="btn-nav"), width="auto", className="ms-auto d-flex align-items-center")
-            ], className="mb-4 pb-3 border-bottom align-items-center", style={"borderColor": "var(--border)"}),
+            ], className="mb-4 pb-3 border-bottom align-items-center flex-grow-0", style={"borderColor": "var(--border)"}),
             
+            # --- ÁREA DE TRABALHO ---
+            # align-items-stretch: Força ambas as colunas a terem a mesma altura
             dbc.Row([
+                # =================================================================
+                # COLUNA ESQUERDA
+                # =================================================================
                 dbc.Col([
                     html.Div([
-                        # 3. LABEL DE ENTRADA ALTERADO
                         dbc.Label("Lista Original (Excel/Texto):", className="fw-bold text-muted mb-0"), 
                         dbc.Badge("0 itens", id="badge-inscricoes-entrada", color="secondary", className="ms-2")
-                    ], className="d-flex align-items-center mb-2"),
+                    ], className="d-flex align-items-center mb-2 flex-grow-0"),
                     
-                    # 4. PLACEHOLDER ALTERADO
-                    dbc.Textarea(id="input-inscricoes", className="mb-3 flex-grow-1", style={"backgroundColor": "rgba(0,0,0,0.2)", "color": "white", "border": "1px solid var(--border)", "fontSize": "0.95rem", "resize": "none", "height": "100%"}, 
+                    # Textarea que cresce para ocupar o espaço
+                    dbc.Textarea(id="input-inscricoes", className="mb-3 flex-grow-1", 
+                                 style={"backgroundColor": "rgba(0,0,0,0.2)", "color": "white", "border": "1px solid var(--border)", "fontSize": "0.95rem", "resize": "none", "height": "100%"}, 
                                  placeholder="Cole a coluna de inscrições aqui..."),
                     
+                    # Botões no rodapé da coluna
                     dbc.Row([
                         dbc.Col(dbc.Button("LIMPAR", id="btn-limpar-inscricoes", color="secondary", className="w-100 fw-bold py-2"), width=12, md=3),
                         dbc.Col(dbc.Button("GERAR LISTA", id="btn-processar-inscricoes", className="w-100 fw-bold py-2", style={"backgroundColor": OVG_ROSA_CLARO, "border": "none"}), width=12, md=9),
-                    ], className="g-2")
-                ], md=6, className="d-flex flex-column h-100 mb-4 mb-md-0"), 
+                    ], className="g-2 flex-grow-0")
+                    
+                ], md=6, className="d-flex flex-column mb-4 mb-md-0"), 
                 
+                # =================================================================
+                # COLUNA DIREITA (Agora alinhada corretamente)
+                # =================================================================
                 dbc.Col([
                     html.Div([
-                        # 5. LABEL DE SAÍDA ALTERADO
                         dbc.Label("Lista Formatada (Pronta para Filtro):", className="fw-bold text-muted mb-0"), 
                         dbc.Badge("0 itens", id="badge-inscricoes-saida", style={"backgroundColor": OVG_ROSA_CLARO}, className="ms-2")
-                    ], className="d-flex align-items-center mb-2"),
+                    ], className="d-flex align-items-center mb-2 flex-grow-0"),
                     
+                    # Container Relativo (Flex Grow) - Estica até o fim da altura
                     html.Div([
-                        dbc.Textarea(id="output-inscricoes", readonly=True, style={"backgroundColor": "rgba(0,0,0,0.4)", "color": OVG_ROSA_CLARO, "border": f"1px solid {OVG_ROSA_CLARO}", "fontFamily": "monospace", "height": "100%", "resize": "none"}),
-                        html.Div([dcc.Clipboard(target_id="output-inscricoes", style={"fontSize": 24, "color": "white"})], style={"position": "absolute", "top": "15px", "right": "15px", "backgroundColor": OVG_ROSA_CLARO, "padding": "8px 12px", "borderRadius": "8px", "cursor": "pointer"})
-                    ], style={"position": "relative", "flex": "1"}), 
-                ], md=6, className="d-flex flex-column h-100"),
-            ], style={"height": "65vh"}), 
+                        # Textarea ocupa 100% da altura deste container
+                        dbc.Textarea(
+                            id="output-inscricoes", 
+                            readonly=True, 
+                            style={
+                                "backgroundColor": "rgba(0,0,0,0.4)", 
+                                "color": OVG_ROSA_CLARO, 
+                                "border": f"1px solid {OVG_ROSA_CLARO}", 
+                                "fontFamily": "monospace", 
+                                "fontSize": "1rem", 
+                                "resize": "none", 
+                                "width": "100%", 
+                                "height": "100%", 
+                                "padding": "15px"
+                            },
+                            className="flex-grow-1"
+                        ),
+
+                        # Botão Flutuante (Javascript)
+                        dbc.Button(
+                            [DashIconify(icon="lucide:copy", width=22, color="white")],
+                            id="btn-copiar-lista", # ID que aciona o Javascript
+                            style={
+                                "position": "absolute",
+                                "top": "15px",
+                                "right": "15px",
+                                "width": "45px",
+                                "height": "45px",
+                                "borderRadius": "8px",
+                                "padding": "0",
+                                "display": "flex",
+                                "alignItems": "center",
+                                "justifyContent": "center",
+                                "backgroundColor": OVG_ROSA_CLARO,
+                                "border": "none",
+                                "zIndex": "100",
+                                "boxShadow": "0 4px 10px rgba(0,0,0,0.3)"
+                            }
+                        )
+                    ], className="d-flex flex-column flex-grow-1 position-relative h-100"), 
+                    
+                ], md=6, className="d-flex flex-column"),
+                
+            ], className="flex-grow-1 align-items-stretch"), # Garante altura igual
+            
+            # TOASTS
             dbc.Toast(id="toast-inscricoes", header="Sucesso", icon="success", duration=4000, is_open=False, style={"position": "fixed", "bottom": 20, "right": 20, "width": 300}),
+            dbc.Toast("Lista copiada com sucesso!", id="toast-copy-lista-success", header="Sucesso", icon="success", duration=3000, is_open=False, style={"position": "fixed", "bottom": 20, "right": 20, "width": 350, "zIndex": 1060}),
         ])
     ])
 
 # =============================================================================
-# 5. FERRAMENTA: NORMALIZADOR DE DADOS (Versão Final)
+# 5. FERRAMENTA: NORMALIZADOR DE DADOS (Versão Final - ALINHADA)
 # =============================================================================
 def layout_ferramenta_ies():
     # Cor real da logo OVG para esta ferramenta
     OVG_ROSA_MEDIO = "#D45694" 
 
     return html.Div(className="container-fluid p-3 p-md-4", children=[ 
-        html.Div(className="main-container", style={"minHeight": "85vh", "maxWidth": "1400px", "margin": "20px auto 0 auto"}, children=[
+        # Container Principal
+        html.Div(className="main-container d-flex flex-column", style={"minHeight": "85vh", "maxWidth": "1400px", "margin": "20px auto 0 auto"}, children=[
+            
             # --- Cabeçalho ---
             dbc.Row([
                 dbc.Col([
@@ -267,12 +319,13 @@ def layout_ferramenta_ies():
                     html.Span("Limpeza e Padronização de Textos", className="text-muted", style={"fontSize": "1.1rem"})
                 ]),
                 dbc.Col(dbc.Button([DashIconify(icon="lucide:arrow-left-circle", width=25, className="me-2"), "Voltar"], href="/softwares", color="light", outline=True, className="btn-nav"), width="auto", className="ms-auto d-flex align-items-center")
-            ], className="mb-4 pb-3 border-bottom align-items-center", style={"borderColor": "var(--border)"}),
+            ], className="mb-4 pb-3 border-bottom align-items-center flex-grow-0", style={"borderColor": "var(--border)"}),
             
             # --- ÁREA DE TRABALHO ---
+            # align-items-stretch: Garante que as colunas esquerda e direita tenham a mesma altura visual
             dbc.Row([
                 # =================================================================
-                # COLUNA ESQUERDA: Entrada + Configurações + Botões
+                # COLUNA ESQUERDA (Define a altura pelo conteúdo)
                 # =================================================================
                 dbc.Col([
                     html.Div([
@@ -288,7 +341,6 @@ def layout_ferramenta_ies():
                     dbc.Card([
                         dbc.CardHeader("Configurações de Padronização", className="fw-bold small text-white py-2", style={"backgroundColor": "rgba(255,255,255,0.05)", "borderBottom": "1px solid rgba(255,255,255,0.1)"}),
                         dbc.CardBody([
-                            # Linha 1: Formatação (Case)
                             dbc.Row([
                                 dbc.Col([
                                     dbc.Label("Formatação de Texto:", className="fw-bold text-muted small mb-1"),
@@ -310,53 +362,34 @@ def layout_ferramenta_ies():
 
                             html.Hr(style={"borderColor": "rgba(255,255,255,0.1)", "margin": "5px 0 15px 0"}),
 
-                            # Linha 2: Opções Avançadas
                             dbc.Row([
                                 dbc.Col([
-                                    # Switch: Remover Acentuação
                                     dbc.Switch(
-                                        id="switch-accents-ies", 
-                                        label="Remover Acentuação", 
-                                        value=False, 
-                                        style={"color": "white", "fontSize": "0.9rem"}, 
-                                        className="mb-3"
+                                        id="switch-accents-ies", label="Remover Acentuação", value=False, style={"color": "white", "fontSize": "0.9rem"}, className="mb-3"
                                     ),
-                                    
-                                    # Tipo de Saída
                                     dbc.Label("Tipo de Lista (Saída):", className="fw-bold text-muted small mb-1"),
                                     dbc.RadioItems(
                                         options=[
-                                            {"label": "Valores Correspondentes (Mesma ordem)", "value": "full"}, # MUDANÇA: Agora é o primeiro
+                                            {"label": "Valores Correspondentes (Mesma ordem)", "value": "full"}, 
                                             {"label": "Valores Únicos (Remove repetidos)", "value": "unique"}
                                         ], 
-                                        value="full", 
-                                        id="radio-tipo-ies", 
-                                        style={"color": "white", "fontSize": "0.85rem"},
-                                        labelStyle={"marginBottom": "5px"}
+                                        value="full", id="radio-tipo-ies", style={"color": "white", "fontSize": "0.85rem"}, labelStyle={"marginBottom": "5px"}
                                     ),
                                 ], width=6, className="border-end border-secondary pe-3"), 
 
                                 dbc.Col([
-                                    # Input Caracteres
                                     dbc.Label("Remover Caracteres Específicos:", className="fw-bold text-muted small mb-1"),
                                     dbc.Input(
-                                        id="input-remove-chars-ies",
-                                        placeholder="Digite aqui... Ex: - . / ( ) A 1",
-                                        type="text",
-                                        style={"backgroundColor": "rgba(0,0,0,0.3)", "color": "white", "borderColor": "var(--border)", "fontSize": "0.9rem", "height": "38px"}
+                                        id="input-remove-chars-ies", placeholder="Digite aqui... Ex: - . / ( ) A 1", type="text", style={"backgroundColor": "rgba(0,0,0,0.3)", "color": "white", "borderColor": "var(--border)", "fontSize": "0.9rem", "height": "38px"}
                                     ),
-                                    # Texto de ajuda
                                     dbc.FormText([
-                                        "Insira caracteres, letras ou números.", 
-                                        html.Br(), 
-                                        "Por padrão espaçamentos extras já são removidos."
+                                        "Insira caracteres, letras ou números.", html.Br(), "Por padrão espaçamentos extras já são removidos."
                                     ], color="muted", style={"fontSize": "0.75rem"}),
                                 ], width=6, className="ps-3"),
                             ]),
                         ], className="p-3")
                     ], className="mb-3 flex-grow-0", style={"backgroundColor": "rgba(255,255,255,0.02)", "border": "1px solid var(--border)"}),
                     
-                    # Botões
                     dbc.Row([
                         dbc.Col(dbc.Button("LIMPAR", id="btn-limpar-ies", color="secondary", className="w-100 fw-bold py-2"), width=12, md=3),
                         dbc.Col(dbc.Button("NORMALIZAR DADOS", id="btn-processar-ies", className="w-100 fw-bold py-2", style={"backgroundColor": OVG_ROSA_MEDIO, "border": "none"}), width=12, md=9),
@@ -365,15 +398,19 @@ def layout_ferramenta_ies():
                 ], md=6, className="d-flex flex-column mb-4 mb-md-0"),
 
                 # =================================================================
-                # COLUNA DIREITA: Saída
+                # COLUNA DIREITA: Saída (Estica para acompanhar a esquerda)
                 # =================================================================
                 dbc.Col([
+                    # Cabeçalho da coluna (Label + Badge)
                     html.Div([
                         dbc.Label("Dados Normalizados:", className="fw-bold text-muted mb-0"), 
                         dbc.Badge("0 itens", id="badge-ies-saida", style={"backgroundColor": OVG_ROSA_MEDIO}, className="ms-2")
-                    ], className="d-flex align-items-center mb-2"),
+                    ], className="d-flex align-items-center mb-2 flex-grow-0"),
                     
+                    # Container Relativo que segura a Textarea e o Botão Flutuante
+                    # flex-grow-1: Faz este container crescer para ocupar todo o espaço restante da coluna
                     html.Div([
+                        # 1. A Caixa de Texto (Fica por baixo, ocupando 100% da altura deste container)
                         dbc.Textarea(
                             id="output-ies", 
                             readonly=True, 
@@ -383,28 +420,48 @@ def layout_ferramenta_ies():
                                 "border": f"1px solid {OVG_ROSA_MEDIO}", 
                                 "fontFamily": "monospace", 
                                 "fontSize": "1rem", 
-                                "flex": "1",
-                                "width": "100%",
                                 "resize": "none", 
-                                "minHeight": "400px"
-                            }
+                                "width": "100%", 
+                                "height": "100%", # Ocupa 100% da altura do pai (que já está esticado)
+                                "padding": "15px",
+                                "display": "block"
+                            },
+                            className="flex-grow-1"
                         ),
-                        html.Div([
-                            dcc.Clipboard(target_id="output-ies", title="Copiar", style={"fontSize": 24, "color": "white"})
-                        ], style={
-                            "position": "absolute", "top": "15px", "right": "15px", 
-                            "backgroundColor": OVG_ROSA_MEDIO, "padding": "8px 12px", 
-                            "borderRadius": "8px", "cursor": "pointer", 
-                            "boxShadow": "0 4px 10px rgba(0,0,0,0.3)"
-                        })
-                    ], className="d-flex flex-column flex-grow-1 position-relative h-100"),
+
+                        # 2. O Botão Manual (FLUTUANDO DENTRO DA ÁREA DE TEXTO)
+                        dbc.Button(
+                            [DashIconify(icon="lucide:copy", width=22, color="white")],
+                            id="btn-copiar-manual",
+                            style={
+                                "position": "absolute",
+                                "top": "15px",
+                                "right": "15px",
+                                "width": "45px",
+                                "height": "45px",
+                                "borderRadius": "8px",
+                                "padding": "0",
+                                "display": "flex",
+                                "alignItems": "center",
+                                "justifyContent": "center",
+                                "backgroundColor": OVG_ROSA_MEDIO,
+                                "border": "none",
+                                "zIndex": "100", # Garante que fique sobre o texto
+                                "boxShadow": "0 4px 10px rgba(0,0,0,0.3)"
+                            }
+                        )
+
+                    ], className="d-flex flex-column flex-grow-1 position-relative"), # flex-grow-1 aqui é o segredo do alinhamento
                     
-                ], md=6, className="d-flex flex-column"),
+                ], md=6, className="d-flex flex-column"), # Coluna também é flex-column para permitir o grow interno
                 
-            ], className="flex-grow-1"),
+            ], className="flex-grow-1 align-items-stretch"), # align-items-stretch nivela as colunas
             
-            # TOAST (Notificação)
+            # TOAST (Notificação de Processamento)
             dbc.Toast(id="toast-ies", header="Processado", icon="info", duration=5000, is_open=False, dismissable=True, style={"position": "fixed", "bottom": 20, "right": 20, "width": 350, "zIndex": 1050}),
+            
+            # TOAST (Notificação de Cópia - Acionado pelo JS)
+            dbc.Toast("Copiado com sucesso!", id="toast-copy-success", header="Sucesso", icon="success", duration=3000, is_open=False, style={"position": "fixed", "bottom": 20, "right": 20, "width": 350, "zIndex": 1060}),
         ])
     ])
     
