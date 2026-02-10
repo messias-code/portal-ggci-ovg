@@ -525,13 +525,16 @@ def processar_lista(n_process, n_clear, text):
 # MAIN (EXECUÇÃO)
 # =============================================================================
 if __name__ == '__main__':
-    # Define porta baseada no ambiente
     is_wsl = "microsoft" in platform.release().lower() or "wsl" in platform.release().lower()
-    PORT = 8051 if is_wsl else 8050
     
-    # Executa a configuração de rede apenas no processo principal (evita rodar 2x com o reloader)
+    # MUDANÇA AQUI:
+    # Se for WSL usa 8051. Se for Windows (PowerShell) usa 8085.
+    PORT = 8051 if is_wsl else 8085
+    
     if os.environ.get("WERKZEUG_RUN_MAIN") is None:
-        configurar_rede_automatica(PORT)
-        
-    # Inicia o servidor Flask embutido no Dash
+        try:
+            configurar_rede_automatica(PORT)
+        except:
+            pass 
+
     app.run(host='0.0.0.0', port=PORT, debug=True)

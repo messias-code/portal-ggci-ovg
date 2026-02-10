@@ -14,7 +14,7 @@ DESCRIÇÃO:
 import re  # Biblioteca padrão do Python para Expressões Regulares (Regex)
 
 def validar_requisitos_senha(senha_plana: str) -> list:
-    """
+    r"""
     Valida a complexidade de uma senha baseada nas políticas de segurança da organização.
 
     CONCEITO DE REGEX (Expressões Regulares):
