@@ -1,7 +1,30 @@
-dash
-dash-bootstrap-components
-dash-iconify
-pandas
-SQLAlchemy
-psycopg2-binary
+# =============================================================================
+# ARQUIVO: requirements.txt
+# DESCRIÇÃO: Dependências estritas para o Portal GGCI.
+# VERSÕES: Extraídas do seu ambiente atual (Fevereiro/2026).
+# =============================================================================
+
+# --- FRAMEWORK VISUAL ---
+dash==3.4.0
+dash-bootstrap-components==2.0.4
+dash-iconify==0.1.2
+
+# Dependência do Dash (Geralmente instalada auto, mas bom garantir)
 werkzeug
+
+# --- DADOS ---
+# Versões exatas do seu ambiente para garantir compatibilidade numérica
+numpy==2.3.5
+pandas==2.3.3
+
+# Para ler/escrever Excel (usado nas ferramentas de lista)
+openpyxl
+
+# --- BANCO DE DADOS ---
+# ORM e Driver
+SQLAlchemy
+psycopg2-binary==2.9.11
+
+# --- UTILITÁRIOS ---
+# Para ler o .env (Recomendado)
+python-dotenv

@@ -1,1 +1,1 @@
-1. no padronizador escolher forma de padronizar, pra por vigula apos colar coluna do excel, ou trazer o inverso, por com virgula, para ele padronizar um embaixo no outro sem virgula, ou seja, o inverso.
+1. Arrumar todas as mensagens para que não fique algo redundante.
