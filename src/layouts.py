@@ -335,16 +335,16 @@ def layout_ferramenta_ies():
 # =============================================================================
 # 6. FERRAMENTA: ANÁLISE DE CONTRATOS IA (INTERFACE VISUAL COMPACTA)
 # =============================================================================
+# ARQUIVO: src/layouts.py
+
 def layout_ferramenta_analise_contratos():
     """
-    Interface Visual Otimizada:
-    - Filtros organizados em Card Compacto.
-    - Área de Logs maximizada.
-    - Botões de controle (Toolbar) com tamanho reduzido.
-    - 3 Barras de Progresso independentes.
+    Interface Visual Otimizada (Final):
+    - Barra de Progresso expandida (ocupa todo o centro).
+    - Botões alinhados nas pontas.
+    - Layout responsivo corrigido.
     """
     OVG_ROXO_REAL = "#8E6AB3"
-    OVG_VERDE_REAL = "#A0D468"
     OVG_ROSA_CLARO = "#F08EB3"
 
     estilo_switch = {
@@ -355,13 +355,15 @@ def layout_ferramenta_analise_contratos():
         "textOverflow": "ellipsis"
     }
     
-    # Estilo base para barra de progresso (fina)
+    # Ajustei a altura para 20px para ficar mais harmônico com os botões
     estilo_barra = {
-        "height": "12px", 
-        "fontSize": "0.7rem", 
+        "height": "20px", 
+        "fontSize": "0.8rem", 
         "fontWeight": "bold", 
-        "backgroundColor": "#333", 
-        "--bs-progress-bar-bg": OVG_ROSA_CLARO
+        "backgroundColor": "rgba(255,255,255,0.1)", 
+        "--bs-progress-bar-bg": OVG_ROSA_CLARO,
+        "borderRadius": "6px",
+        "width": "100%" # Força a barra a preencher a coluna container
     }
 
     return html.Div(className="container-fluid p-3 p-md-4", children=[ 
@@ -381,7 +383,7 @@ def layout_ferramenta_analise_contratos():
                 dbc.CardHeader("Configurações de Extração", className="fw-bold small text-white py-2", style={"backgroundColor": "rgba(255,255,255,0.05)", "borderBottom": "1px solid rgba(255,255,255,0.1)"}),
                 dbc.CardBody([
                     dbc.Row([
-                        # COLUNA ESQUERDA: DOCUMENTOS (Larga para caber texto)
+                        # COLUNA ESQUERDA
                         dbc.Col([
                             dbc.Label("TIPOS DE DOCUMENTOS", className="fw-bold text-muted small mb-2"),
                             dbc.Switch(id="sw-docs-todos", label="TODOS", value=True, style=estilo_switch),
@@ -391,7 +393,7 @@ def layout_ferramenta_analise_contratos():
                             dbc.Switch(id="sw-riaf", label="RIAF – RESUMO DE INFORMAÇÕES ACADÊMICAS E FINANCEIRAS", value=False, style=estilo_switch),
                         ], md=6, className="border-end border-secondary pe-3"),
                         
-                        # COLUNA DIREITA: FILTROS MENORES
+                        # COLUNA DIREITA
                         dbc.Col([
                             dbc.Row([
                                 dbc.Col([
@@ -411,13 +413,9 @@ def layout_ferramenta_analise_contratos():
                                 dbc.Col([
                                     dbc.Label("FORMATO", className="fw-bold text-muted small mb-2"),
                                     dbc.RadioItems(
-                                        options=[
-                                            {"label": "Excel (.xlsx)", "value": "excel"},
-                                            {"label": "CSV (.csv)", "value": "csv"}
-                                        ],
+                                        options=[{"label": "Excel (.xlsx)", "value": "excel"}, {"label": "CSV (.csv)", "value": "csv"}],
                                         value="excel", id="radio-saida-contratos",
-                                        style={"fontSize": "0.85rem"},
-                                        labelStyle={"marginBottom": "5px"}
+                                        style={"fontSize": "0.85rem"}, labelStyle={"marginBottom": "5px"}
                                     ),
                                 ], width=4),
                             ])
@@ -426,18 +424,18 @@ def layout_ferramenta_analise_contratos():
                 ], className="p-3")
             ], className="mb-3 flex-grow-0", style={"backgroundColor": "rgba(255,255,255,0.02)", "border": "1px solid var(--border)"}),
 
-            # --- ÁREA DE CONTROLE E LOGS (EXPANDIDA) ---
+            # --- ÁREA DE CONTROLE E LOGS ---
             html.Div([
-                # BARRA DE FERRAMENTAS (BOTOES)
+                # BARRA DE FERRAMENTAS
                 dbc.Row([
-                    # Botão INICIAR (Pequeno)
+                    # 1. Botão INICIAR (Fixo na esquerda)
                     dbc.Col(dbc.Button(
                         [DashIconify(icon="lucide:play", width=18, className="me-2"), "INICIAR"], 
                         id="btn-iniciar-robo", className="btn-sm fw-bold d-flex align-items-center justify-content-center shadow-lg",
                         style={"backgroundColor": OVG_ROXO_REAL, "border": "none", "height": "38px", "minWidth": "110px"}
-                    ), width="auto"),
+                    ), width="auto"), # width="auto" faz o botão ocupar só o tamanho dele
                     
-                    # Botão PARAR (Pequeno)
+                    # 2. Botão PARAR (Fixo na esquerda, ao lado do iniciar)
                     dbc.Col(dbc.Button(
                         [DashIconify(icon="lucide:circle-stop", width=18, className="me-2"), "PARAR"], 
                         id="btn-cancelar-robo", color="danger", outline=True, disabled=True, 
@@ -445,42 +443,22 @@ def layout_ferramenta_analise_contratos():
                         style={"height": "38px"}
                     ), width="auto"),
                     
-                    # Botão LIMPAR (Meio)
-                    dbc.Col(dbc.Button(
-                        [DashIconify(icon="lucide:eraser", width=16, className="me-2"), "LIMPAR LOGS"], 
-                        id="btn-limpar-logs", color="light", outline=True, 
-                        className="btn-sm fw-bold d-flex align-items-center justify-content-center",
-                        style={"height": "38px"}
-                    ), width="auto", className="ms-auto me-auto"), # Centraliza se houver espaço
+                    # 3. BARRA DE PROGRESSO (ESTICADA)
+                    # width=True faz esta coluna ocupar TODO o espaço restante da linha
+                    dbc.Col([
+                        dbc.Progress(id="barra-progresso-geral", value=0, label="0%", striped=True, animated=True, style=estilo_barra)
+                    ], width=True, className="d-flex align-items-center px-3"),
                     
-                    # Botão BAIXAR (Pequeno)
+                    # 4. Botão BAIXAR (Fixo na direita)
                     dbc.Col(dbc.Button(
                         [DashIconify(icon="lucide:download", width=18, className="me-2"), "BAIXAR"], 
                         id="btn-salvar-relatorio", disabled=True, 
                         className="btn-sm fw-bold d-flex align-items-center justify-content-center shadow-lg",
                         style={"backgroundColor": OVG_ROXO_REAL, "border": "none", "color": "white", "height": "38px"}
                     ), width="auto"),
-                ], className="mb-3 align-items-center g-2"),
+                ], className="mb-3 align-items-center g-2"), # g-2 é o espaçamento entre colunas
 
-                # 3 BARRAS DE PROGRESSO
-                html.Div([
-                    dbc.Row([
-                        dbc.Col(html.Span("2025/1:", className="small fw-bold text-muted"), width=1, className="text-end pe-2"),
-                        dbc.Col(dbc.Progress(id="bar-2025-1", value=0, label="0%", striped=True, animated=True, style=estilo_barra), width=11),
-                    ], className="align-items-center mb-1 g-0"),
-                    
-                    dbc.Row([
-                        dbc.Col(html.Span("2025/2:", className="small fw-bold text-muted"), width=1, className="text-end pe-2"),
-                        dbc.Col(dbc.Progress(id="bar-2025-2", value=0, label="0%", striped=True, animated=True, style=estilo_barra), width=11),
-                    ], className="align-items-center mb-1 g-0"),
-                    
-                    dbc.Row([
-                        dbc.Col(html.Span("2026/1:", className="small fw-bold text-muted"), width=1, className="text-end pe-2"),
-                        dbc.Col(dbc.Progress(id="bar-2026-1", value=0, label="0%", striped=True, animated=True, style=estilo_barra), width=11),
-                    ], className="align-items-center mb-2 g-0"),
-                ]),
-
-                # LOGS DO SISTEMA (Cresce para ocupar espaço)
+                # LOGS DO SISTEMA
                 html.Div(
                     id="terminal-logs",
                     children=[html.Div(">> Aguardando comando...", className="text-muted")],
@@ -503,8 +481,7 @@ def layout_ferramenta_analise_contratos():
             ], style={"flex": "1", "display": "flex", "flexDirection": "column", "overflow": "hidden"}),
             
             dcc.Interval(id="intervalo-simulacao", interval=800, n_intervals=0, disabled=True),
-            # Store atualizada para guardar progresso de 3 tarefas
-            dcc.Store(id="store-simulacao-estado", data={"p1": 0, "p2": 0, "p3": 0, "logs": []})
+            dcc.Store(id="store-simulacao-estado", data={"progress": 0, "logs": []})
         ])
     ])
 

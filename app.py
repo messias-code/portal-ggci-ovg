@@ -530,6 +530,9 @@ app.clientside_callback(
 # =============================================================================
 # CALLBACKS: FERRAMENTA DE CONTRATOS (LÓGICA PRINCIPAL)
 # =============================================================================
+# =============================================================================
+# CALLBACKS: FERRAMENTA DE CONTRATOS (LÓGICA PRINCIPAL ATUALIZADA)
+# =============================================================================
 
 @callback(
     [Output("intervalo-simulacao", "disabled"),
@@ -540,52 +543,41 @@ app.clientside_callback(
      Output("btn-salvar-relatorio", "disabled"),
      Output("terminal-logs", "children", allow_duplicate=True),
      
-     # Outputs para as 3 barras de progresso
-     Output("bar-2025-1", "value", allow_duplicate=True), Output("bar-2025-1", "label", allow_duplicate=True),
-     Output("bar-2025-2", "value", allow_duplicate=True), Output("bar-2025-2", "label", allow_duplicate=True),
-     Output("bar-2026-1", "value", allow_duplicate=True), Output("bar-2026-1", "label", allow_duplicate=True)], 
+     # Outputs para a BARRA ÚNICA
+     Output("barra-progresso-geral", "value", allow_duplicate=True), 
+     Output("barra-progresso-geral", "label", allow_duplicate=True),
+     Output("barra-progresso-geral", "color", allow_duplicate=True)], # Adicionado para mudar cor no final
     [Input("btn-iniciar-robo", "n_clicks"),
-     Input("btn-cancelar-robo", "n_clicks"),
-     Input("btn-limpar-logs", "n_clicks")],
+     Input("btn-cancelar-robo", "n_clicks")],
     [State("intervalo-simulacao", "disabled")],
     prevent_initial_call=True
 )
-def controlar_execucao_robo(n_iniciar, n_cancelar, n_limpar, is_disabled):
+def controlar_execucao_robo(n_iniciar, n_cancelar, is_disabled):
     try:
         ctx_id = ctx.triggered_id
         
-        # 1. Ação: LIMPAR LOGS
-        if ctx_id == "btn-limpar-logs":
-            return (
-                True,   # Intervalo -> Parado
-                False,  # Botão Iniciar -> Liberado
-                [DashIconify(icon="lucide:play", width=20, className="me-2"), "INICIAR"], 
-                True,   # Botão Cancelar -> Travado
-                {"p1": 0, "p2": 0, "p3": 0, "logs": []}, 
-                True,   # Botão Salvar -> Travado
-                [html.Div(">> Logs limpos. Aguardando comando...", className="text-muted")], 
-                0, "0%", 0, "0%", 0, "0%" # Zera as 3 barras
-            )
-
-        # 2. Ação: INICIAR ROBÔ
+        # 1. Ação: INICIAR ROBÔ
         if ctx_id == "btn-iniciar-robo":
             conteudo_processando = [
                 DashIconify(icon="line-md:loading-loop", width=22, color="white", className="me-2"),
                 html.Span("RODANDO...", style={"fontSize": "0.85rem"})
             ]
             
+            # Limpa logs ao iniciar
+            logs_iniciais = [{"hora": "", "msg": ">> Iniciando processo..."}]
+            
             return (
-                False,  # Intervalo -> Rodando
+                False,  # Intervalo -> Rodando (False = Enabled)
                 True,   # Botão Iniciar -> Travado
                 conteudo_processando, 
                 False,  # Botão Cancelar -> Liberado
-                {"p1": 0, "p2": 0, "p3": 0, "logs": []}, 
+                {"progress": 0, "logs": logs_iniciais}, 
                 True,    # Botão Salvar -> Travado
-                no_update,
-                0, "0%", 0, "0%", 0, "0%" # Zera barras
+                [html.Div(">> Iniciando processo...", style={"color": "#F08EB3"})],
+                0, "0%", "" # Zera barra
             )
 
-        # 3. Ação: CANCELAR ROBÔ
+        # 2. Ação: CANCELAR ROBÔ
         if ctx_id == "btn-cancelar-robo":
             return (
                 True,   # Intervalo -> Parado
@@ -595,21 +587,21 @@ def controlar_execucao_robo(n_iniciar, n_cancelar, n_limpar, is_disabled):
                 no_update, 
                 True,   # Botão Salvar -> Travado
                 [html.Div([html.Span("!!! PROCESSO CANCELADO PELO USUÁRIO !!!", className="text-danger fw-bold")])],
-                no_update, no_update, no_update, no_update, no_update, no_update
+                no_update, no_update, "danger" # Barra fica vermelha se cancelar? Opcional.
             )
 
-        return (no_update,) * 15
+        return (no_update,) * 10
         
     except Exception:
         import traceback
         print(traceback.format_exc())
-        return (no_update,) * 15
+        return (no_update,) * 10
 
 
 @callback(
-    [Output("bar-2025-1", "value"), Output("bar-2025-1", "label"),
-     Output("bar-2025-2", "value"), Output("bar-2025-2", "label"),
-     Output("bar-2026-1", "value"), Output("bar-2026-1", "label"),
+    [Output("barra-progresso-geral", "value"), 
+     Output("barra-progresso-geral", "label"),
+     Output("barra-progresso-geral", "color"),
      Output("terminal-logs", "children"),
      Output("store-simulacao-estado", "data", allow_duplicate=True),
      Output("intervalo-simulacao", "disabled", allow_duplicate=True),
@@ -623,60 +615,60 @@ def controlar_execucao_robo(n_iniciar, n_cancelar, n_limpar, is_disabled):
 )
 def atualizar_simulacao_robo(n, dados):
     try:
-        p1 = dados.get("p1", 0)
-        p2 = dados.get("p2", 0)
-        p3 = dados.get("p3", 0)
+        progress = dados.get("progress", 0)
         logs = dados.get("logs", [])
         
-        # Simula velocidades diferentes para cada "thread" (semestre)
-        # O p3 (2026-1) é mais rápido, p1 mais lento
-        if p1 < 100: p1 += 2
-        if p2 < 100: p2 += 3
-        if p3 < 100: p3 += 4
+        # Incrementa progresso
+        incremento = 2 # Velocidade
+        if progress < 100: 
+            progress += incremento
         
-        # Gera logs baseados no progresso
+        # --- LÓGICA DE LOGS PADRONIZADOS ---
         novo_log = None
         import datetime
         hora = datetime.datetime.now().strftime("[%H:%M:%S]")
+        cor_log = "#F08EB3" # Cor padrão (Rosa)
 
-        # Logs fictícios baseados no script real
-        if p1 == 10: novo_log = f"{hora} [2025-1] Iniciando driver Chrome..."
-        elif p1 == 30: novo_log = f"{hora} [2025-1] Acessando Sistema PBU..."
-        elif p1 == 60: novo_log = f"{hora} [2025-1] Gerando relatório Excel..."
-        elif p1 == 90: novo_log = f"{hora} [2025-1] Validando arquivo baixado..."
-        
-        if p3 == 20: novo_log = f"{hora} [2026-1] Autenticando usuário ihan.santos..."
-        elif p3 == 50: novo_log = f"{hora} [2026-1] Filtrando: CONTRATO DE PRESTAÇÃO..."
-        elif p3 == 80: novo_log = f"{hora} [2026-1] Download concluído."
+        # Mapeamento de porcentagem para mensagens fixas
+        if progress == 5: novo_log = f"{hora} Conectando ao Sistema PBU..."
+        elif progress == 20: novo_log = f"{hora} Acessando módulo de contratos..."
+        elif progress == 40: novo_log = f"{hora} Filtrando registros (Anos/Semestres)..."
+        elif progress == 60: novo_log = f"{hora} Extraindo dados brutos dos documentos..."
+        elif progress == 80: novo_log = f"{hora} Cruzando informações com Banco de Dados..."
+        elif progress == 90: novo_log = f"{hora} Gerando arquivo final consolidado..."
+        elif progress >= 100: 
+            novo_log = f"{hora} PROCESSO CONCLUÍDO COM SUCESSO."
+            cor_log = "#A0D468" # Verde OVG
 
         if novo_log:
-            logs.append({"hora": "", "msg": novo_log}) # Hora já está na string
+            if not logs or logs[-1]['msg'] != novo_log:
+                logs.append({"msg": novo_log, "cor": cor_log})
 
         # Renderiza logs
         children_logs = []
         for item in logs:
-            children_logs.append(html.Div(html.Span(item['msg'], style={"color": "#F08EB3", "fontFamily": "Consolas"})))
+            cor = item.get('cor', "#F08EB3")
+            children_logs.append(html.Div(html.Span(item['msg'], style={"color": cor, "fontFamily": "Consolas"})))
 
-        # Verifica se TODOS terminaram
-        if p1 >= 100 and p2 >= 100 and p3 >= 100:
+        # Verifica se TERMINOU
+        if progress >= 100:
             return (
-                100, "100%", 100, "100%", 100, "100%",
+                100, "100%", "success", # Barra verde no final
                 children_logs, dados,
-                True, # Para intervalo
-                [DashIconify(icon="lucide:check", width=20, className="me-2"), "CONCLUÍDO"],
-                False, # Iniciar liberado
+                True, # Intervalo -> Parar
+                # AQUI ESTÁ A MUDANÇA: Ícone de Reiniciar e Texto "REINICIAR"
+                [DashIconify(icon="lucide:rotate-cw", width=20, className="me-2"), "REINICIAR"],
+                False, # Iniciar liberado (agora com cara de reiniciar)
                 True,  # Parar travado
                 False  # Baixar liberado
             )
 
-        # Atualiza estado
-        dados["p1"] = min(p1, 100)
-        dados["p2"] = min(p2, 100)
-        dados["p3"] = min(p3, 100)
+        # Atualiza estado enquanto roda
+        dados["progress"] = min(progress, 100)
         dados["logs"] = logs
 
         return (
-            p1, f"{p1}%", p2, f"{p2}%", p3, f"{p3}%",
+            progress, f"{progress}%", "", # Cor padrão enquanto roda
             children_logs, dados,
             no_update, no_update, no_update, no_update, no_update
         )
@@ -684,7 +676,7 @@ def atualizar_simulacao_robo(n, dados):
     except Exception:
         import traceback
         print(traceback.format_exc())
-        return (no_update,) * 13
+        return (no_update,) * 10
 
 # =============================================================================
 # MAIN (EXECUÇÃO)
