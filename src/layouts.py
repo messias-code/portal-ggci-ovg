@@ -370,13 +370,8 @@ def layout_ferramenta_analise_contratos():
             # --- CABEÇALHO ---
             dbc.Row([
                 dbc.Col([
-<<<<<<< Updated upstream
                     html.H3([DashIconify(icon="lucide:bot", className="me-2", color=OVG_ROXO_REAL), "Analise de Contratos IA"], className="m-0 fw-bold"), 
                     html.Span("Automação para Análise Contratos Processados (Selenium + SQL)", className="text-muted", style={"fontSize": "1.1rem"})
-=======
-                    html.H3([DashIconify(icon="lucide:bot", className="me-2", color=OVG_ROXO_REAL), "Robô de Extração"], className="m-0 fw-bold"), 
-                    html.Span("Automação de Contratos e Financeiro (Selenium + SQL)", className="text-muted", style={"fontSize": "1.1rem"})
->>>>>>> Stashed changes
                 ]),
                 dbc.Col(dbc.Button([DashIconify(icon="lucide:arrow-left-circle", width=24, className="me-2"), "Voltar"], href="/softwares", color="light", outline=True, className="btn-nav"), width="auto", className="ms-auto d-flex align-items-center")
             ], className="mb-4 pb-3 border-bottom align-items-center flex-grow-0", style={"borderColor": "var(--border)"}),
