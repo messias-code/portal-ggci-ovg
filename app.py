@@ -24,6 +24,7 @@ import sys
 import subprocess
 import platform
 from collections import Counter
+from dash_iconify import DashIconify
 
 # --- IMPORTAÇÕES LOCAIS (MÓDULOS DO PROJETO) ---
 from src.database import (
@@ -76,83 +77,63 @@ def remove_acentos(texto):
     return ''.join(c for c in unicodedata.normalize('NFD', texto) if unicodedata.category(c) != 'Mn')
 
 # =============================================================================
-# AUTOMAÇÃO DE REDE (WINDOWS / WSL)
-# =============================================================================
-# =============================================================================
-# AUTOMAÇÃO DE REDE (WINDOWS / WSL) - CORRIGIDO
+# AUTOMAÇÃO DE REDE (WINDOWS / WSL) - ATUALIZADO (VISUALIZAÇÃO DE LINKS)
 # =============================================================================
 def configurar_rede_automatica(port):
     """
-    Script de Infraestrutura (DevOps).
+    Detecta o ambiente e exibe os links corretos para acesso externo.
+    Ignora erros de permissão de firewall (já que foi configurado manualmente).
     """
     system_info = platform.release().lower()
     is_wsl = "microsoft" in system_info or "wsl" in system_info
     
     hostname = "localhost"
+    windows_ip = "IP-NAO-DETECTADO"
+    
+    print("\n" + "="*70)
+    
     try:
         if is_wsl:
-            # CORREÇÃO 1: Removido text=True, decode manual com ignore
+            # 1. Pega o Hostname do Windows (ex: PCDELPO07)
             raw_host = subprocess.check_output(["powershell.exe", "-NoProfile", "-Command", "hostname"])
             hostname = raw_host.decode('utf-8', errors='ignore').strip()
+            
+            # 2. Pega o IP REAL do Windows (Ethernet/Wi-Fi), ignorando o IP interno do WSL
+            # O comando abaixo busca o IP da placa que tem Gateway (Internet)
+            cmd_get_ip = r"(Get-NetIPConfiguration | Where-Object { $_.IPv4DefaultGateway -ne $null }).IPv4Address.IPAddress"
+            raw_ip = subprocess.check_output(["powershell.exe", "-NoProfile", "-Command", cmd_get_ip])
+            windows_ip = raw_ip.decode('utf-8', errors='ignore').strip()
+
+            # 3. Tenta atualizar a ponte silenciosamente (Se falhar por permissão, ignora)
+            try:
+                # Pega IP interno do WSL
+                raw_wsl = subprocess.check_output(["hostname", "-I"])
+                wsl_ip = raw_wsl.decode('utf-8', errors='ignore').strip().split()[0]
+                
+                # Script simples apenas para garantir a ponte (sem mexer em firewall que exige admin)
+                ps_script = f"netsh interface portproxy add v4tov4 listenport={port} listenaddress=0.0.0.0 connectport={port} connectaddress={wsl_ip}"
+                subprocess.run(["powershell.exe", "-NoProfile", "-Command", ps_script], capture_output=True)
+            except:
+                pass # Se der erro de permissão, segue o baile (já foi feito manual)
+                
         else:
+            # Se estiver rodando no Windows direto (sem WSL)
             hostname = platform.node()
-    except:
-        pass
+            import socket
+            windows_ip = socket.gethostbyname(hostname)
 
-    print("\n" + "="*70)
+    except Exception as e:
+        print(f"⚠️ Aviso: Não foi possível detectar IP externo automaticamente: {e}")
+
+    # --- EXIBIÇÃO DOS LINKS FORMATADOS ---
     print(f"🚀 INICIANDO PORTAL GGCI | HOST: {hostname}")
-    
-    if is_wsl:
-        print("🔧 Ambiente WSL detectado. Iniciando configuração automática de rede...")
-        try:
-            # 1. Descobre o IP interno do Linux (WSL)
-            # Linux geralmente é seguro com utf-8, mas mantemos o padrão de segurança
-            raw_ip = subprocess.check_output(["hostname", "-I"])
-            wsl_ip = raw_ip.decode('utf-8', errors='ignore').strip().split()[0]
-            print(f"   👉 IP Interno WSL: {wsl_ip}")
-
-            # 2. Monta o script PowerShell
-            ps_script = f"""
-            Write-Host '1. Limpando regras antigas...'
-            netsh interface portproxy delete v4tov4 listenport={port} | Out-Null
-            netsh interface portproxy delete v4tov4 listenport=8050 | Out-Null
-            
-            Write-Host '2. Criando novas pontes de rede...'
-            netsh interface portproxy add v4tov4 listenport={port} listenaddress=0.0.0.0 connectport={port} connectaddress={wsl_ip}
-            netsh interface portproxy add v4tov4 listenport=8050 listenaddress=0.0.0.0 connectport={port} connectaddress={wsl_ip}
-            
-            Write-Host '3. Liberando Firewall...'
-            Remove-NetFirewallRule -DisplayName 'Portal GGCI Auto' -ErrorAction SilentlyContinue | Out-Null
-            New-NetFirewallRule -DisplayName 'Portal GGCI Auto' -Direction Inbound -LocalPort {port},8050 -Protocol TCP -Action Allow | Out-Null
-            
-            Write-Host '4. Reiniciando serviço IP Helper (Essencial)...'
-            Restart-Service iphlpsvc -Force | Out-Null
-            """
-            
-            # 3. Executa o script no Windows via subprocesso
-            # CORREÇÃO 2: Removido text=True. Capturamos bytes puros.
-            result = subprocess.run(
-                ["powershell.exe", "-NoProfile", "-Command", ps_script], 
-                capture_output=True
-            )
-            
-            if result.returncode == 0:
-                print("   ✅ Ponte Windows -> WSL configurada e serviço reiniciado!")
-            else:
-                # Decodificação segura para exibir o erro sem quebrar o app
-                erro_msg = result.stderr.decode('cp850', errors='replace') # Tenta cp850 (cmd br)
-                if not erro_msg:
-                    erro_msg = result.stderr.decode('utf-8', errors='replace') # Fallback
-                
-                print("   ⚠️  AVISO: Ocorreu um erro na configuração automática.")
-                print(f"   Erro: {erro_msg[:200]}...") 
-                
-        except Exception as e:
-            print(f"   ❌ Erro crítico ao configurar rede: {e}")
-    
     print("-" * 70)
-    print(f"🌍 ACESSO: http://{hostname}:{port}/ (Principal)")
-    print(f"           http://{hostname}:8050/ (Alternativo)")
+    print("📢 LINKS DE ACESSO (Envie para os colegas):")
+    print("")
+    print(f"   👉 Pelo Nome (PC/Intranet):   http://{hostname}.ovg.org.br:{port}")
+    print(f"   👉 Pelo IP (Celular/Wi-Fi):   http://{windows_ip}:{port}")
+    print("")
+    print(f"   🏠 Acesso Local (Você):       http://localhost:{port}")
     print("="*70 + "\n")
 
 # =============================================================================
@@ -529,13 +510,187 @@ def processar_lista(n_process, n_clear, text):
     return resultado_final, no_update, f"{qtd_saida} únicos", f"{qtd_entrada} itens", msg_toast, True, tem_duplicata, texto_duplicatas, texto_titulo
 
 # =============================================================================
+# CALLBACKS CLIENTSIDE: AUTO-SCROLL DOS LOGS
+# =============================================================================
+app.clientside_callback(
+    """
+    function(children) {
+        var terminal = document.getElementById('terminal-logs');
+        if (terminal) {
+            terminal.scrollTop = terminal.scrollHeight;
+        }
+        return window.dash_clientside.no_update;
+    }
+    """,
+    Output("terminal-logs", "id"),
+    Input("terminal-logs", "children"),
+    prevent_initial_call=True
+)
+
+# =============================================================================
+# CALLBACKS: FERRAMENTA DE CONTRATOS (LÓGICA PRINCIPAL)
+# =============================================================================
+
+@callback(
+    [Output("intervalo-simulacao", "disabled"),
+     Output("btn-iniciar-robo", "disabled"),
+     Output("btn-iniciar-robo", "children"),
+     Output("btn-cancelar-robo", "disabled"),
+     Output("store-simulacao-estado", "data"),
+     Output("btn-salvar-relatorio", "disabled"),
+     Output("terminal-logs", "children", allow_duplicate=True),
+     
+     # Outputs para as 3 barras de progresso
+     Output("bar-2025-1", "value", allow_duplicate=True), Output("bar-2025-1", "label", allow_duplicate=True),
+     Output("bar-2025-2", "value", allow_duplicate=True), Output("bar-2025-2", "label", allow_duplicate=True),
+     Output("bar-2026-1", "value", allow_duplicate=True), Output("bar-2026-1", "label", allow_duplicate=True)], 
+    [Input("btn-iniciar-robo", "n_clicks"),
+     Input("btn-cancelar-robo", "n_clicks"),
+     Input("btn-limpar-logs", "n_clicks")],
+    [State("intervalo-simulacao", "disabled")],
+    prevent_initial_call=True
+)
+def controlar_execucao_robo(n_iniciar, n_cancelar, n_limpar, is_disabled):
+    try:
+        ctx_id = ctx.triggered_id
+        
+        # 1. Ação: LIMPAR LOGS
+        if ctx_id == "btn-limpar-logs":
+            return (
+                True,   # Intervalo -> Parado
+                False,  # Botão Iniciar -> Liberado
+                [DashIconify(icon="lucide:play", width=20, className="me-2"), "INICIAR"], 
+                True,   # Botão Cancelar -> Travado
+                {"p1": 0, "p2": 0, "p3": 0, "logs": []}, 
+                True,   # Botão Salvar -> Travado
+                [html.Div(">> Logs limpos. Aguardando comando...", className="text-muted")], 
+                0, "0%", 0, "0%", 0, "0%" # Zera as 3 barras
+            )
+
+        # 2. Ação: INICIAR ROBÔ
+        if ctx_id == "btn-iniciar-robo":
+            conteudo_processando = [
+                DashIconify(icon="line-md:loading-loop", width=22, color="white", className="me-2"),
+                html.Span("RODANDO...", style={"fontSize": "0.85rem"})
+            ]
+            
+            return (
+                False,  # Intervalo -> Rodando
+                True,   # Botão Iniciar -> Travado
+                conteudo_processando, 
+                False,  # Botão Cancelar -> Liberado
+                {"p1": 0, "p2": 0, "p3": 0, "logs": []}, 
+                True,    # Botão Salvar -> Travado
+                no_update,
+                0, "0%", 0, "0%", 0, "0%" # Zera barras
+            )
+
+        # 3. Ação: CANCELAR ROBÔ
+        if ctx_id == "btn-cancelar-robo":
+            return (
+                True,   # Intervalo -> Parado
+                False,  # Botão Iniciar -> Liberado
+                [DashIconify(icon="lucide:rotate-cw", width=20, className="me-2"), "REINICIAR"], 
+                True,   # Botão Cancelar -> Travado
+                no_update, 
+                True,   # Botão Salvar -> Travado
+                [html.Div([html.Span("!!! PROCESSO CANCELADO PELO USUÁRIO !!!", className="text-danger fw-bold")])],
+                no_update, no_update, no_update, no_update, no_update, no_update
+            )
+
+        return (no_update,) * 15
+        
+    except Exception:
+        import traceback
+        print(traceback.format_exc())
+        return (no_update,) * 15
+
+
+@callback(
+    [Output("bar-2025-1", "value"), Output("bar-2025-1", "label"),
+     Output("bar-2025-2", "value"), Output("bar-2025-2", "label"),
+     Output("bar-2026-1", "value"), Output("bar-2026-1", "label"),
+     Output("terminal-logs", "children"),
+     Output("store-simulacao-estado", "data", allow_duplicate=True),
+     Output("intervalo-simulacao", "disabled", allow_duplicate=True),
+     Output("btn-iniciar-robo", "children", allow_duplicate=True),
+     Output("btn-iniciar-robo", "disabled", allow_duplicate=True),
+     Output("btn-cancelar-robo", "disabled", allow_duplicate=True),
+     Output("btn-salvar-relatorio", "disabled", allow_duplicate=True)],
+    Input("intervalo-simulacao", "n_intervals"),
+    State("store-simulacao-estado", "data"),
+    prevent_initial_call=True
+)
+def atualizar_simulacao_robo(n, dados):
+    try:
+        p1 = dados.get("p1", 0)
+        p2 = dados.get("p2", 0)
+        p3 = dados.get("p3", 0)
+        logs = dados.get("logs", [])
+        
+        # Simula velocidades diferentes para cada "thread" (semestre)
+        # O p3 (2026-1) é mais rápido, p1 mais lento
+        if p1 < 100: p1 += 2
+        if p2 < 100: p2 += 3
+        if p3 < 100: p3 += 4
+        
+        # Gera logs baseados no progresso
+        novo_log = None
+        import datetime
+        hora = datetime.datetime.now().strftime("[%H:%M:%S]")
+
+        # Logs fictícios baseados no script real
+        if p1 == 10: novo_log = f"{hora} [2025-1] Iniciando driver Chrome..."
+        elif p1 == 30: novo_log = f"{hora} [2025-1] Acessando Sistema PBU..."
+        elif p1 == 60: novo_log = f"{hora} [2025-1] Gerando relatório Excel..."
+        elif p1 == 90: novo_log = f"{hora} [2025-1] Validando arquivo baixado..."
+        
+        if p3 == 20: novo_log = f"{hora} [2026-1] Autenticando usuário ihan.santos..."
+        elif p3 == 50: novo_log = f"{hora} [2026-1] Filtrando: CONTRATO DE PRESTAÇÃO..."
+        elif p3 == 80: novo_log = f"{hora} [2026-1] Download concluído."
+
+        if novo_log:
+            logs.append({"hora": "", "msg": novo_log}) # Hora já está na string
+
+        # Renderiza logs
+        children_logs = []
+        for item in logs:
+            children_logs.append(html.Div(html.Span(item['msg'], style={"color": "#F08EB3", "fontFamily": "Consolas"})))
+
+        # Verifica se TODOS terminaram
+        if p1 >= 100 and p2 >= 100 and p3 >= 100:
+            return (
+                100, "100%", 100, "100%", 100, "100%",
+                children_logs, dados,
+                True, # Para intervalo
+                [DashIconify(icon="lucide:check", width=20, className="me-2"), "CONCLUÍDO"],
+                False, # Iniciar liberado
+                True,  # Parar travado
+                False  # Baixar liberado
+            )
+
+        # Atualiza estado
+        dados["p1"] = min(p1, 100)
+        dados["p2"] = min(p2, 100)
+        dados["p3"] = min(p3, 100)
+        dados["logs"] = logs
+
+        return (
+            p1, f"{p1}%", p2, f"{p2}%", p3, f"{p3}%",
+            children_logs, dados,
+            no_update, no_update, no_update, no_update, no_update
+        )
+
+    except Exception:
+        import traceback
+        print(traceback.format_exc())
+        return (no_update,) * 13
+
+# =============================================================================
 # MAIN (EXECUÇÃO)
 # =============================================================================
 if __name__ == '__main__':
     is_wsl = "microsoft" in platform.release().lower() or "wsl" in platform.release().lower()
-    
-    # MUDANÇA AQUI:
-    # Se for WSL usa 8051. Se for Windows (PowerShell) usa 8085.
     PORT = 8051 if is_wsl else 8085
     
     if os.environ.get("WERKZEUG_RUN_MAIN") is None:
