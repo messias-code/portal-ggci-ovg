@@ -78,16 +78,12 @@ def remove_acentos(texto):
 # =============================================================================
 # AUTOMAÇÃO DE REDE (WINDOWS / WSL)
 # =============================================================================
+# =============================================================================
+# AUTOMAÇÃO DE REDE (WINDOWS / WSL) - CORRIGIDO
+# =============================================================================
 def configurar_rede_automatica(port):
     """
     Script de Infraestrutura (DevOps).
-    
-    Problema: O WSL2 (Linux no Windows) tem um IP próprio, diferente do Windows.
-    Para que outros computadores na rede acessem o Dash rodando no WSL, precisamos
-    criar uma "Ponte" (Proxy) no Windows que redireciona o tráfego da porta X 
-    do Windows para a porta X do WSL.
-    
-    Esta função detecta o ambiente e executa comandos PowerShell via Python.
     """
     system_info = platform.release().lower()
     is_wsl = "microsoft" in system_info or "wsl" in system_info
@@ -95,8 +91,9 @@ def configurar_rede_automatica(port):
     hostname = "localhost"
     try:
         if is_wsl:
-            # Pega o hostname do Windows (pai) através do WSL
-            hostname = subprocess.check_output(["powershell.exe", "-NoProfile", "-Command", "hostname"], text=True).strip()
+            # CORREÇÃO 1: Removido text=True, decode manual com ignore
+            raw_host = subprocess.check_output(["powershell.exe", "-NoProfile", "-Command", "hostname"])
+            hostname = raw_host.decode('utf-8', errors='ignore').strip()
         else:
             hostname = platform.node()
     except:
@@ -109,11 +106,12 @@ def configurar_rede_automatica(port):
         print("🔧 Ambiente WSL detectado. Iniciando configuração automática de rede...")
         try:
             # 1. Descobre o IP interno do Linux (WSL)
-            wsl_ip = subprocess.check_output(["hostname", "-I"], text=True).strip().split()[0]
+            # Linux geralmente é seguro com utf-8, mas mantemos o padrão de segurança
+            raw_ip = subprocess.check_output(["hostname", "-I"])
+            wsl_ip = raw_ip.decode('utf-8', errors='ignore').strip().split()[0]
             print(f"   👉 IP Interno WSL: {wsl_ip}")
 
             # 2. Monta o script PowerShell
-            # Remove regras antigas -> Cria nova regra de Proxy -> Libera Firewall -> Reinicia serviço de IP
             ps_script = f"""
             Write-Host '1. Limpando regras antigas...'
             netsh interface portproxy delete v4tov4 listenport={port} | Out-Null
@@ -132,13 +130,22 @@ def configurar_rede_automatica(port):
             """
             
             # 3. Executa o script no Windows via subprocesso
-            result = subprocess.run(["powershell.exe", "-NoProfile", "-Command", ps_script], capture_output=True, text=True)
+            # CORREÇÃO 2: Removido text=True. Capturamos bytes puros.
+            result = subprocess.run(
+                ["powershell.exe", "-NoProfile", "-Command", ps_script], 
+                capture_output=True
+            )
             
             if result.returncode == 0:
                 print("   ✅ Ponte Windows -> WSL configurada e serviço reiniciado!")
             else:
+                # Decodificação segura para exibir o erro sem quebrar o app
+                erro_msg = result.stderr.decode('cp850', errors='replace') # Tenta cp850 (cmd br)
+                if not erro_msg:
+                    erro_msg = result.stderr.decode('utf-8', errors='replace') # Fallback
+                
                 print("   ⚠️  AVISO: Ocorreu um erro na configuração automática.")
-                print(f"   Erro: {result.stderr[:200]}...") 
+                print(f"   Erro: {erro_msg[:200]}...") 
                 
         except Exception as e:
             print(f"   ❌ Erro crítico ao configurar rede: {e}")
