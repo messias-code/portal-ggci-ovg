@@ -12,6 +12,7 @@ from dash import html, dcc
 import dash_bootstrap_components as dbc
 from dash_iconify import DashIconify
 from .database import listar_todos_usuarios
+from dash import html, dcc
 
 # =============================================================================
 # CONSTANTES DE ESTILIZAÇÃO
@@ -335,14 +336,11 @@ def layout_ferramenta_ies():
 # =============================================================================
 # 6. FERRAMENTA: ANÁLISE DE CONTRATOS IA (INTERFACE VISUAL COMPACTA)
 # =============================================================================
-# ARQUIVO: src/layouts.py
-
 def layout_ferramenta_analise_contratos():
     """
     Interface Visual Otimizada (Final):
-    - Barra de Progresso expandida (ocupa todo o centro).
-    - Botões alinhados nas pontas.
-    - Layout responsivo corrigido.
+    - Barra de Progresso expandida.
+    - Botões travados para corresponder à lógica real do Selenium/SQL.
     """
     OVG_ROXO_REAL = "#8E6AB3"
     OVG_ROSA_CLARO = "#F08EB3"
@@ -355,7 +353,6 @@ def layout_ferramenta_analise_contratos():
         "textOverflow": "ellipsis"
     }
     
-    # Ajustei a altura para 20px para ficar mais harmônico com os botões
     estilo_barra = {
         "height": "20px", 
         "fontSize": "0.8rem", 
@@ -363,12 +360,13 @@ def layout_ferramenta_analise_contratos():
         "backgroundColor": "rgba(255,255,255,0.1)", 
         "--bs-progress-bar-bg": OVG_ROSA_CLARO,
         "borderRadius": "6px",
-        "width": "100%" # Força a barra a preencher a coluna container
+        "width": "100%"
     }
 
     return html.Div(className="container-fluid p-3 p-md-4", children=[ 
         html.Div(className="main-container d-flex flex-column", style={"height": "90vh", "maxWidth": "1400px", "margin": "20px auto 0 auto", "overflow": "hidden"}, children=[
             
+            dcc.Download(id="download-relatorio-component"),
             # --- CABEÇALHO ---
             dbc.Row([
                 dbc.Col([
@@ -383,14 +381,19 @@ def layout_ferramenta_analise_contratos():
                 dbc.CardHeader("Configurações de Extração", className="fw-bold small text-white py-2", style={"backgroundColor": "rgba(255,255,255,0.05)", "borderBottom": "1px solid rgba(255,255,255,0.1)"}),
                 dbc.CardBody([
                     dbc.Row([
-                        # COLUNA ESQUERDA
+                        # COLUNA ESQUERDA - DOCUMENTOS (TRAVADOS NA LÓGICA REAL)
                         dbc.Col([
                             dbc.Label("TIPOS DE DOCUMENTOS", className="fw-bold text-muted small mb-2"),
-                            dbc.Switch(id="sw-docs-todos", label="TODOS", value=True, style=estilo_switch),
-                            dbc.Switch(id="sw-contratos", label="CONTRATO DE PRESTAÇÃO DE SERVIÇOS EDUCACIONAIS OU COMPROVANTE DE MATRÍCULA", value=False, style=estilo_switch),
-                            dbc.Switch(id="sw-financeiro", label="COMPROVANTE DE FINANCIAMENTO", value=False, style=estilo_switch),
-                            dbc.Switch(id="sw-beneficios", label="COMPROVANTE OUTROS BENEFÍCIOS", value=False, style=estilo_switch),
-                            dbc.Switch(id="sw-riaf", label="RIAF – RESUMO DE INFORMAÇÕES ACADÊMICAS E FINANCEIRAS", value=False, style=estilo_switch),
+                            # Docs Gerais travados
+                            dbc.Switch(id="sw-docs-todos", label="TODOS", value=False, disabled=True, style=estilo_switch),
+                            
+                            # APENAS ESTE ATIVO E TRAVADO
+                            dbc.Switch(id="sw-contratos", label="CONTRATO DE PRESTAÇÃO DE SERVIÇOS EDUCACIONAIS OU COMPROVANTE DE MATRÍCULA", value=True, disabled=True, style=estilo_switch),
+                            
+                            # Outros travados
+                            dbc.Switch(id="sw-financeiro", label="COMPROVANTE DE FINANCIAMENTO", value=False, disabled=True, style=estilo_switch),
+                            dbc.Switch(id="sw-beneficios", label="COMPROVANTE OUTROS BENEFÍCIOS", value=False, disabled=True, style=estilo_switch),
+                            dbc.Switch(id="sw-riaf", label="RIAF – RESUMO DE INFORMAÇÕES ACADÊMICAS E FINANCEIRAS", value=False, disabled=True, style=estilo_switch),
                         ], md=6, className="border-end border-secondary pe-3"),
                         
                         # COLUNA DIREITA
@@ -398,23 +401,29 @@ def layout_ferramenta_analise_contratos():
                             dbc.Row([
                                 dbc.Col([
                                     dbc.Label("ANOS LETIVOS", className="fw-bold text-muted small mb-2"),
-                                    dbc.Switch(id="sw-ano-todos", label="TODOS", value=True, style=estilo_switch),
-                                    dbc.Switch(id="sw-ano-2025", label="2025", value=False, style=estilo_switch),
-                                    dbc.Switch(id="sw-ano-2026", label="2026", value=False, style=estilo_switch),
+                                    # "De resto são todos" -> Todos Ativo e travado
+                                    dbc.Switch(id="sw-ano-todos", label="TODOS", value=True, disabled=True, style=estilo_switch),
+                                    dbc.Switch(id="sw-ano-2025", label="2025", value=False, disabled=True, style=estilo_switch),
+                                    dbc.Switch(id="sw-ano-2026", label="2026", value=False, disabled=True, style=estilo_switch),
                                 ], width=4),
                                 
                                 dbc.Col([
                                     dbc.Label("SEMESTRES", className="fw-bold text-muted small mb-2"),
-                                    dbc.Switch(id="sw-sem-todos", label="TODOS", value=True, style=estilo_switch),
-                                    dbc.Switch(id="sw-sem-1", label="1º Semestre", value=False, style=estilo_switch),
-                                    dbc.Switch(id="sw-sem-2", label="2º Semestre", value=False, style=estilo_switch),
+                                    # "De resto são todos" -> Todos Ativo e travado
+                                    dbc.Switch(id="sw-sem-todos", label="TODOS", value=True, disabled=True, style=estilo_switch),
+                                    dbc.Switch(id="sw-sem-1", label="1º Semestre", value=False, disabled=True, style=estilo_switch),
+                                    dbc.Switch(id="sw-sem-2", label="2º Semestre", value=False, disabled=True, style=estilo_switch),
                                 ], width=4),
                                 
                                 dbc.Col([
                                     dbc.Label("FORMATO", className="fw-bold text-muted small mb-2"),
                                     dbc.RadioItems(
-                                        options=[{"label": "Excel (.xlsx)", "value": "excel"}, {"label": "CSV (.csv)", "value": "csv"}],
-                                        value="excel", id="radio-saida-contratos",
+                                        options=[
+                                            {"label": "Excel (.xlsx)", "value": "excel"}, 
+                                            {"label": "CSV (.csv)", "value": "csv", "disabled": True} # CSV TRAVADO
+                                        ],
+                                        value="excel", # Padrão Excel
+                                        id="radio-saida-contratos",
                                         style={"fontSize": "0.85rem"}, labelStyle={"marginBottom": "5px"}
                                     ),
                                 ], width=4),
@@ -424,18 +433,15 @@ def layout_ferramenta_analise_contratos():
                 ], className="p-3")
             ], className="mb-3 flex-grow-0", style={"backgroundColor": "rgba(255,255,255,0.02)", "border": "1px solid var(--border)"}),
 
-            # --- ÁREA DE CONTROLE E LOGS ---
+            # --- ÁREA DE CONTROLE E LOGS (Mantida igual) ---
             html.Div([
-                # BARRA DE FERRAMENTAS
                 dbc.Row([
-                    # 1. Botão INICIAR (Fixo na esquerda)
                     dbc.Col(dbc.Button(
                         [DashIconify(icon="lucide:play", width=18, className="me-2"), "INICIAR"], 
                         id="btn-iniciar-robo", className="btn-sm fw-bold d-flex align-items-center justify-content-center shadow-lg",
                         style={"backgroundColor": OVG_ROXO_REAL, "border": "none", "height": "38px", "minWidth": "110px"}
-                    ), width="auto"), # width="auto" faz o botão ocupar só o tamanho dele
+                    ), width="auto"),
                     
-                    # 2. Botão PARAR (Fixo na esquerda, ao lado do iniciar)
                     dbc.Col(dbc.Button(
                         [DashIconify(icon="lucide:circle-stop", width=18, className="me-2"), "PARAR"], 
                         id="btn-cancelar-robo", color="danger", outline=True, disabled=True, 
@@ -443,22 +449,18 @@ def layout_ferramenta_analise_contratos():
                         style={"height": "38px"}
                     ), width="auto"),
                     
-                    # 3. BARRA DE PROGRESSO (ESTICADA)
-                    # width=True faz esta coluna ocupar TODO o espaço restante da linha
                     dbc.Col([
                         dbc.Progress(id="barra-progresso-geral", value=0, label="0%", striped=True, animated=True, style=estilo_barra)
                     ], width=True, className="d-flex align-items-center px-3"),
                     
-                    # 4. Botão BAIXAR (Fixo na direita)
                     dbc.Col(dbc.Button(
                         [DashIconify(icon="lucide:download", width=18, className="me-2"), "BAIXAR"], 
                         id="btn-salvar-relatorio", disabled=True, 
                         className="btn-sm fw-bold d-flex align-items-center justify-content-center shadow-lg",
                         style={"backgroundColor": OVG_ROXO_REAL, "border": "none", "color": "white", "height": "38px"}
                     ), width="auto"),
-                ], className="mb-3 align-items-center g-2"), # g-2 é o espaçamento entre colunas
+                ], className="mb-3 align-items-center g-2"),
 
-                # LOGS DO SISTEMA
                 html.Div(
                     id="terminal-logs",
                     children=[html.Div(">> Aguardando comando...", className="text-muted")],
