@@ -1,4 +1,3 @@
-cat <<EOF > .gitignore
 # Byte-compiled / optimized / DLL files
 *__pycache__
 *.pyc
@@ -17,4 +16,7 @@ venv/
 
 # Logs
 *.log
-EOF
+
+# --- PASTAS DE DADOS GERADOS (IGNORAR) ---
+exports_semestrais/
+relatorio_anual/
