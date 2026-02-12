@@ -1,2 +1,2 @@
-1. Arrumar todas as mensagens para que não fique algo redundante.
+1. Arrumar todas as mensagens para que não fique algo redundante e todas tem que ter um padrão.
 2. formatador de dados, ao gerar um, removendo caracteres, e depois trocando a formatação, ele não reseta a coluna esquerda para tratar os dados novamente, ele fica com o que foi tratado anteriormente.

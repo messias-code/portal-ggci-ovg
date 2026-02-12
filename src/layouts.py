@@ -1,10 +1,8 @@
 """
 =============================================================================
 ARQUIVO: layouts.py
-PROJETO: Portal GGCI
 DESCRIÇÃO:
-    Este módulo é responsável por conter todas as funções que retornam a 
-    interface visual (Front-end) da aplicação Dash.
+    Contém a interface visual (Front-end) da aplicação Dash.
 =============================================================================
 """
 
@@ -51,7 +49,7 @@ def layout_login_principal():
             html.Img(src="/assets/logo.png", className="logo-img"),
             html.H3("Portal GGCI", className="text-center mb-2 font-weight-bold"),
             html.P("Gerência de Gestão e Controle de Informações", className="text-center text-muted mb-4", style={"fontSize": "0.9rem"}),
-            dbc.Alert("Entre em contato com o administrador caso não possua acesso.", color="info", className="mb-4 py-3", style={"fontSize": "0.85rem", "borderRadius": "10px"}),
+            dbc.Alert("Caso não possua acesso, contate o administrador do sistema.", color="info", className="mb-4 py-3", style={"fontSize": "0.85rem", "borderRadius": "10px"}),
             html.Div(id="login-main-alert"),
             dbc.Label("Usuário", className="fw-bold", style={"color": OVG_PINK}),
             dbc.Input(id="login-main-user", type="text", className="mb-3", style={"borderColor": "var(--border)"}),
@@ -90,7 +88,7 @@ def layout_home(dados_usuario):
         dbc.ModalBody([
             html.Div([
                 DashIconify(icon="lucide:fingerprint", width=50, color=OVG_AMARELO_REAL, className="mb-3"),
-                html.P("Mantenha sua conta segura atualizando sua senha periodicamente.", className="text-muted small")
+                html.P("Para sua segurança, atualize sua senha periodicamente.", className="text-muted small")
             ], className="text-center mb-4"),
             dbc.Label("Senha Atual", className="fw-bold", style={"color": OVG_AMARELO_REAL}),
             dbc.Input(id="input-senha-atual", type="password", placeholder="Digite sua senha atual", className="mb-3"),
@@ -144,7 +142,7 @@ def layout_home(dados_usuario):
             ], justify="center", className="mt-4"),
 
             modal_troca_senha,
-            dbc.Toast("Apenas administradores possuem acesso a este módulo.", id="toast-acesso-negado", header="Acesso Restrito", icon="danger", duration=4000, is_open=False, dismissable=True, style={"position": "fixed", "bottom": 20, "right": 20, "width": 350, "zIndex": 1050}),
+            dbc.Toast("🔒 Funcionalidade exclusiva para Administradores.", id="toast-acesso-negado", header="Acesso Restrito", icon="danger", duration=4000, is_open=False, dismissable=True, style={"position": "fixed", "bottom": 20, "right": 20, "width": 350, "zIndex": 1050}),
         ])
     ])
 
@@ -217,7 +215,7 @@ def layout_ferramenta_inscricoes():
                     dbc.Textarea(id="input-inscricoes", className="mb-3 flex-grow-1", style={"backgroundColor": "rgba(0,0,0,0.2)", "color": "white", "border": "1px solid var(--border)", "fontSize": "0.95rem", "resize": "none", "height": "100%"}, placeholder="Cole a coluna de inscrições aqui..."),
                     dbc.Row([
                         dbc.Col(dbc.Button("LIMPAR", id="btn-limpar-inscricoes", color="secondary", className="w-100 fw-bold py-2"), width=12, md=3),
-                        dbc.Col(dbc.Button("GERAR LISTA", id="btn-processar-inscricoes", className="w-100 fw-bold py-2", style={"backgroundColor": OVG_ROSA_CLARO, "border": "none"}), width=12, md=9),
+                        dbc.Col(dbc.Button("NORMALIZAR DADOS", id="btn-processar-inscricoes", className="w-100 fw-bold py-2", style={"backgroundColor": OVG_ROSA_CLARO, "border": "none"}), width=12, md=9),
                     ], className="g-2 flex-grow-0")
                 ], md=6, className="d-flex flex-column mb-4 mb-md-0"), 
                 
@@ -249,8 +247,8 @@ def layout_ferramenta_inscricoes():
                 ], color="warning", className="mt-3", style={"backgroundColor": "rgba(255, 193, 7, 0.1)", "color": "#ffc107", "border": "1px solid #ffc107"}),
                 id="collapse-duplicatas", is_open=False
             ),
-            dbc.Toast(id="toast-inscricoes", header="Sucesso", icon="success", duration=4000, is_open=False, style={"position": "fixed", "bottom": 20, "right": 20, "width": 300}),
-            dbc.Toast("Copiado com sucesso!", id="toast-copy-lista-success", header="Sucesso", icon="success", duration=3000, is_open=False, style={"position": "fixed", "bottom": 20, "right": 20, "width": 350, "zIndex": 1060}),
+            dbc.Toast("✅ Dados normalizados com sucesso!", id="toast-inscricoes", header="Concluído", icon="success", duration=4000, is_open=False, style={"position": "fixed", "bottom": 20, "right": 20, "width": 300}),
+            dbc.Toast("📋 Conteúdo copiado para a área de transferência.", id="toast-copy-lista-success", header="Copiado", icon="success", duration=3000, is_open=False, style={"position": "fixed", "bottom": 20, "right": 20, "width": 350, "zIndex": 1060}),
         ])
     ])
 
@@ -329,7 +327,7 @@ def layout_ferramenta_ies():
             ], className="flex-grow-1 align-items-stretch"), 
             
             dbc.Toast(id="toast-ies", header="Processado", icon="info", duration=5000, is_open=False, dismissable=True, style={"position": "fixed", "bottom": 20, "right": 20, "width": 350, "zIndex": 1050}),
-            dbc.Toast("Copiado com sucesso!", id="toast-copy-success", header="Concluído", icon="success", duration=3000, is_open=False, style={"position": "fixed", "bottom": 20, "right": 20, "width": 350, "zIndex": 1060}),
+            dbc.Toast("📋 Conteúdo copiado para a área de transferência.", id="toast-copy-success", header="Copiado", icon="success", duration=3000, is_open=False, style={"position": "fixed", "bottom": 20, "right": 20, "width": 350, "zIndex": 1060}),
         ])
     ])
 
@@ -337,11 +335,6 @@ def layout_ferramenta_ies():
 # 6. FERRAMENTA: ANÁLISE DE CONTRATOS IA (INTERFACE VISUAL COMPACTA)
 # =============================================================================
 def layout_ferramenta_analise_contratos():
-    """
-    Interface Visual Otimizada (Final):
-    - Barra de Progresso expandida.
-    - Botões travados para corresponder à lógica real do Selenium/SQL.
-    """
     OVG_ROXO_REAL = "#8E6AB3"
     OVG_ROSA_CLARO = "#F08EB3"
 
@@ -627,7 +620,7 @@ def componentes_modais_admin():
         
         dbc.Modal([
             dbc.ModalHeader(dbc.ModalTitle("Confirmar Exclusão", className="fw-bold text-danger")),
-            dbc.ModalBody([html.Div([DashIconify(icon="lucide:alert-triangle", width=50, color="#dc3545", className="mb-3"), html.H5("Você tem certeza?", className="fw-bold"), html.P("Esta ação não poderá ser desfeita.", className="text-muted")], className="text-center p-3")]),
+            dbc.ModalBody([html.Div([DashIconify(icon="lucide:alert-triangle", width=50, color="#dc3545", className="mb-3"), html.H5("Você tem certeza?", className="fw-bold"), html.P("⚠️ Atenção: Esta ação é irreversível. Deseja continuar?", className="text-muted")], className="text-center p-3")]),
             dbc.ModalFooter([dbc.Button("NÃO, CANCELAR", id="btn-cancelar-delete", color="light", className="fw-bold me-2"), dbc.Button("SIM, EXCLUIR", id="btn-confirmar-delete", color="danger", className="fw-bold")])
         ], id="modal-delete", is_open=False, centered=True),
         

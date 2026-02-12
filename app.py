@@ -2,16 +2,7 @@
 =============================================================================
 ARQUIVO: app.py (ENTRY POINT)
 DESCRIÇÃO:
-    Este é o arquivo principal da aplicação. Ele é responsável por:
-    1. Inicializar o Servidor Dash.
-    2. Configurar o Roteamento de URL (Navegação entre páginas).
-    3. Gerenciar o Estado de Autenticação (Login/Logout).
-    4. Centralizar os Callbacks (Lógica de interação).
-    5. Configurar a Rede (Automação para rodar em WSL/Windows).
-
-    PADRÃO DE PROJETO:
-    Utilizamos um padrão de "Single Page Application" (SPA). O layout base 
-    nunca recarrega; apenas o conteúdo da div 'page-content' é trocado.
+    Este é o arquivo principal da aplicação.
 =============================================================================
 """
 import dash
@@ -162,7 +153,7 @@ def router(pathname, auth_data):
 def realizar_login(n_clicks, username, password):
     if not n_clicks: return no_update
     if not username or not password: 
-        return no_update, no_update, dbc.Alert("Preencha campos.", color="warning")
+        return no_update, no_update, dbc.Alert("⚠️ Preencha todos os campos de login.", color="warning")
     
     dados, erro = autenticar_usuario(username, password)
     
@@ -198,8 +189,10 @@ def usuario_trocar_senha(btn_open, btn_cancel, btn_save, is_open, atual, nova, c
     if trig == "btn-cancelar-troca": return False, "", "", "", ""
     
     if trig == "btn-salvar-troca":
-        if not all([atual, nova, confirma]): return True, dbc.Alert("Preencha tudo.", color="warning"), no_update, no_update, no_update
-        if nova != confirma: return True, dbc.Alert("Senhas diferem.", color="danger"), no_update, no_update, no_update
+        if not all([atual, nova, confirma]): 
+            return True, dbc.Alert("⚠️ Preencha todos os campos obrigatórios.", color="warning"), no_update, no_update, no_update
+        if nova != confirma: 
+            return True, dbc.Alert("⚠️ As novas senhas não coincidem.", color="danger"), no_update, no_update, no_update
         
         ok, msg = atualizar_senha_usuario(auth_data.get('id'), atual, nova)
         return (False, "", "", "", "") if ok else (True, dbc.Alert(msg, color="danger"), no_update, no_update, no_update)
@@ -250,9 +243,12 @@ def admin_gerenciar_usuario(btn_new, btn_edit, btn_cancel, btn_save, is_open, ed
         return False, no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update, ""
         
     if trigger == "btn-salvar-usuario":
-        if not all([nome, sobrenome, email]): return True, no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update, dbc.Alert("Campos obrigatórios!", color="warning")
-        if not edit_id and not senha: return True, no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update, dbc.Alert("Senha obrigatória.", color="warning")
-        if senha and senha != senha2: return True, no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update, dbc.Alert("Senhas não conferem!", color="danger")
+        if not all([nome, sobrenome, email]): 
+            return True, no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update, dbc.Alert("⚠️ Preencha todos os campos obrigatórios.", color="warning")
+        if not edit_id and not senha: 
+            return True, no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update, dbc.Alert("⚠️ A senha é obrigatória para novos usuários.", color="warning")
+        if senha and senha != senha2: 
+            return True, no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update, dbc.Alert("⚠️ As senhas digitadas não coincidem.", color="danger")
         
         sucesso, msg = persistir_usuario(nome, sobrenome, email, senha, bool(is_admin), user_id=edit_id)
         if sucesso: return False, no_update, None, "", "", "", False, "", "", ""
@@ -376,7 +372,11 @@ def processar_normalizacao(n_process, n_clear, text, case, accent, out_type, rm_
         if item: processed.append(item)
     
     final = list(dict.fromkeys(processed)) if out_type == "unique" else processed
-    return "\n".join(final), f"{len(lines)} itens", f"{len(final)} itens", "Aviso: Espaços removidos." if alerta else f"Gerado com sucesso!", True, no_update, "Aviso" if alerta else "Concluído", "warning" if alerta else "success"
+    
+    msg_toast = "✅ Dados normalizados com sucesso!"
+    if alerta: msg_toast = "Aviso: Espaços removidos."
+    
+    return "\n".join(final), f"{len(lines)} itens", f"{len(final)} itens", msg_toast, True, no_update, "Aviso" if alerta else "Concluído", "warning" if alerta else "success"
 
 # 4. Lógica do FORMATADOR DE LISTAS
 @callback(
@@ -416,7 +416,7 @@ def processar_lista(n_process, n_clear, text):
         texto_duplicatas = ", ".join(itens_duplicados)
         texto_titulo = f"Itens Duplicados Removidos: {len(itens_duplicados)}"
 
-    return resultado_final, no_update, f"{len(uniques)} únicos", f"{len(raw_items)} itens", "Gerado com sucesso!", True, tem_duplicata, texto_duplicatas, texto_titulo
+    return resultado_final, no_update, f"{len(uniques)} únicos", f"{len(raw_items)} itens", "✅ Dados normalizados com sucesso!", True, tem_duplicata, texto_duplicatas, texto_titulo
 
 # =============================================================================
 # CALLBACKS CLIENTSIDE: AUTO-SCROLL DOS LOGS

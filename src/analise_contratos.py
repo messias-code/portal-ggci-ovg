@@ -3,11 +3,6 @@
 ARQUIVO: src/analise_contratos.py
 DESCRIÇÃO:
     Motor de automação (Selenium + SQL).
-    
-    VERSÃO GOLD (PERFORMANCE MÁXIMA):
-    1. Paralelismo Agressivo: Delay reduzido para 1.5s (Abrem juntos).
-    2. Barra Suave: Progresso granular (incrementos de 1% a cada etapa).
-    3. UX: Logs mantidos e timeout de segurança ativo.
 =============================================================================
 """
 import os
@@ -112,7 +107,7 @@ class AutomacaoContratos:
     def stop(self):
         if self.is_running:
             self.stop_event.set()
-            self.log("!!! PARANDO FORÇADAMENTE !!!", "red")
+            self.log("🚫 [USUÁRIO] Parada forçada solicitada.", "red")
             with self.lock:
                 for driver in self.active_drivers:
                     try: driver.quit()
@@ -121,14 +116,11 @@ class AutomacaoContratos:
 
     def _run_process(self):
         try:
-            self.log("🚀 MÓDULO INICIADO (Modo Turbo)", "white")
+            self.log("🚀 [SISTEMA] Iniciando módulo de automação...", "white")
             
             # --- FASE 1: DOWNLOAD PARALELO (0% -> 80%) ---
-            # A responsabilidade de atualizar a barra agora é das threads individuais
-            # para dar a sensação de 1% a 1%.
             
             with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
-                # Delay mínimo (1.5s) apenas para não colidir o driver inicial
                 futures = {
                     executor.submit(self._baixar_semestre_safe, s, idx): s 
                     for idx, s in enumerate(self.semestres)
@@ -140,15 +132,15 @@ class AutomacaoContratos:
                     try:
                         future.result()
                     except Exception as e:
-                        self.log(f"❌ Erro em {sem['label']}: {e}", "red")
+                        self.log(f"❌ [ERRO] Falha em {sem['label']}: {e}", "red")
 
             if self.stop_event.is_set():
                 self.is_running = False
                 return
 
             # --- FASE 2: CONSOLIDAÇÃO (80% -> 100%) ---
-            self.progress = 80 # Garante sincronia antes da fase final
-            self.log("📦 CONSOLIDANDO DADOS...", "#FFCE54")
+            self.progress = 80 
+            self.log("📦 [SISTEMA] Consolidando dados baixados...", "#FFCE54")
             
             sucesso = self._gerar_relatorio_final_formatado()
             
@@ -159,14 +151,14 @@ class AutomacaoContratos:
                 self.progress = 100
                 self.status_final = "success"
                 self.arquivo_gerado = ARQUIVO_SAIDA
-                self.log(f"🏆 FINALIZADO EM {tempo_fmt}", "#A0D468")
+                self.log(f"🏆 [SUCESSO] Processo finalizado em {tempo_fmt}", "#A0D468")
             else:
                 self.status_final = "error"
-                self.log("❌ Falha na geração do relatório.", "red")
+                self.log("❌ [ERRO] Falha na geração do relatório final.", "red")
 
         except Exception as e:
             if not self.stop_event.is_set():
-                self.log(f"🔥 Erro Crítico: {str(e)}", "red")
+                self.log(f"🔥 [CRÍTICO] Erro inesperado: {str(e)}", "red")
                 self.status_final = "error"
         finally:
             self.is_running = False
@@ -180,7 +172,6 @@ class AutomacaoContratos:
         MAX_RETRIES = 3
         nome = semestre['label']
         
-        # Delay reduzido para 1.5s (Quase simultâneo, mas seguro)
         delay = index * 1.5
         if delay > 0:
             time.sleep(delay)
@@ -188,15 +179,15 @@ class AutomacaoContratos:
         for i in range(1, MAX_RETRIES + 1):
             if self.stop_event.is_set(): return
             try:
-                self.log(f"▶️ [{nome}] Iniciando...", "cyan")
+                self.log(f"▶️ [{nome}] Iniciando download...", "cyan")
                 self._selenium_download(semestre)
-                self.log(f"✅ [{nome}] Download OK!", "#A0D468")
+                self.log(f"✅ [{nome}] Arquivo baixado com sucesso!", "#A0D468")
                 return
             except Exception as e:
                 if self.stop_event.is_set(): return
-                self.log(f"⚠️ [{nome}] Falha: {str(e)[:50]}...", "yellow")
+                self.log(f"⚠️ [{nome}] Tentativa falhou: {str(e)[:50]}...", "yellow")
                 if i == MAX_RETRIES: 
-                    self.log(f"❌ [{nome}] DESISTINDO.", "red")
+                    self.log(f"❌ [{nome}] Limite de tentativas excedido.", "red")
                     raise e
                 time.sleep(5)
 
@@ -204,9 +195,6 @@ class AutomacaoContratos:
         driver.execute_script("arguments[0].click();", elemento)
 
     def _selenium_download(self, semestre):
-        # Cada etapa incrementa um pouquinho a barra
-        # Total de etapas ~8. Total Threads 3. 
-        # (8 * 3 * 3%) = ~72%. Perfeito para cobrir até os 80%.
         STEP_VAL = 3 
         
         pasta_temp = os.path.join(DIR_EXPORTS, f"temp_{semestre['label']}")
@@ -257,8 +245,7 @@ class AutomacaoContratos:
                 self.active_drivers.append(driver)
 
             wait = WebDriverWait(driver, 180)
-            label = f"[{semestre['label']}]"
-
+            
             # 1. ACESSO
             try: driver.get("http://10.237.1.11/pbu")
             except: 
@@ -298,7 +285,7 @@ class AutomacaoContratos:
             
             # 5. DOCUMENTO
             self._check_stop()
-            self.log(f"{label} 📄 Solicitando Relatório...", "gray")
+            self.log(f"📄 [{semestre['label']}] Solicitando geração do relatório...", "gray")
             try:
                 btn_expand = driver.find_element(By.CSS_SELECTOR, "#div_int_documento_tipo .dn-expand-button")
                 self._executor_clique(driver, btn_expand)
@@ -328,7 +315,7 @@ class AutomacaoContratos:
             self._executor_clique(driver, btn_ok)
 
             # 7. DOWNLOAD WAIT
-            self.log(f"{label} ⬇️ Baixando arquivo...", "cyan")
+            self.log(f"⬇️ [{semestre['label']}] Transferindo arquivo...", "cyan")
             inicio = time.time()
             clicado = False
             
@@ -398,7 +385,7 @@ class AutomacaoContratos:
 
     def _gerar_relatorio_final_formatado(self):
         try:
-            self.log("🔗 Conectando ao Banco de Dados...", "cyan")
+            self.log("🔗 [BANCO] Conectando ao SIBU (Oracle/MySQL)...", "cyan")
             self.update_progress(3)
             
             DB_USER, DB_PASS = "bi_ovg", quote_plus("bi_ovg@#$124as65")
@@ -411,13 +398,13 @@ class AutomacaoContratos:
                 df_sql['semestre'] = df_sql['semestre'].astype(str).str.strip()
                 df_sql = self._normalizar_semestres_faltantes_sql(df_sql)
 
-            self.log("📂 Carregando Excel...", "cyan")
+            self.log("📂 [ARQUIVOS] Lendo planilhas exportadas...", "cyan")
             dfs = []
             files = glob.glob(os.path.join(DIR_EXPORTS, "export_*.xlsx"))
             files.sort()
             
             if not files:
-                self.log("⚠️ Nenhum arquivo Excel.", "yellow")
+                self.log("⚠️ [AVISO] Nenhum arquivo encontrado para processar.", "yellow")
                 return False
 
             for f in files:
@@ -430,7 +417,7 @@ class AutomacaoContratos:
                         d['Inscrição'] = d['Inscrição'].astype(str).str.replace('.','', regex=False).str.strip()
                     dfs.append(d)
                 except Exception as ex:
-                    self.log(f"Erro ler {sem}: {ex}", "red")
+                    self.log(f"❌ [ERRO] Falha ao ler {sem}: {ex}", "red")
 
             if not dfs: return False
             
@@ -446,7 +433,7 @@ class AutomacaoContratos:
             if 'CPF' in df_final.columns: df_final['CPF'] = df_final['CPF'].apply(limpar_cpf)
             if 'Gemini CPF' in df_final.columns: df_final['Gemini CPF'] = df_final['Gemini CPF'].apply(limpar_cpf)
 
-            self.log("🔄 Cruzando informações...", "cyan")
+            self.log("🔄 [DADOS] Cruzando informações (SQL x Excel)...", "cyan")
             if not df_sql.empty:
                 df_final = pd.merge(df_final, df_sql, left_on=['Inscrição','Semestre'], right_on=['uni_codigo','semestre'], how='left')
                 df_final.drop(columns=['uni_codigo'], errors='ignore', inplace=True)
@@ -485,7 +472,7 @@ class AutomacaoContratos:
             colunas_existentes = [c for c in ordem if c in df_final.columns]
             df_final = df_final[colunas_existentes]
 
-            self.log("🎨 Formatando Excel...", "cyan")
+            self.log("🎨 [EXCEL] Formatando planilha final...", "cyan")
             self.update_progress(5)
             
             writer = pd.ExcelWriter(ARQUIVO_SAIDA, engine='xlsxwriter')
