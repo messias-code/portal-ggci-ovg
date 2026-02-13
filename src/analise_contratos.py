@@ -393,7 +393,10 @@ class AutomacaoContratos:
             eng = create_engine(connection_string)
             
             df_sql = pd.read_sql("SELECT * FROM sibu.PY_financeiro_calculado_semestre_IM", eng)
+            
+            # --- LIMPEZA INICIAL SQL ---
             if not df_sql.empty:
+                # Remove pontos e espaços, mas mantém como string por enquanto
                 df_sql['uni_codigo'] = df_sql['uni_codigo'].astype(str).str.replace('.', '', regex=False).str.strip()
                 df_sql['semestre'] = df_sql['semestre'].astype(str).str.strip()
                 df_sql = self._normalizar_semestres_faltantes_sql(df_sql)
@@ -410,11 +413,15 @@ class AutomacaoContratos:
             for f in files:
                 sem = os.path.basename(f).replace("export_","").replace(".xlsx","").replace("-","/")
                 try:
-                    d = pd.read_excel(f, dtype={'CPF': str, 'Gemini CPF': str, 'Inscrição': str})
+                    # Lê tudo como string inicialmente para preservar dados
+                    d = pd.read_excel(f, dtype=str)
+                    
                     if "Semestre" in d.columns: d.drop(columns=["Semestre"], inplace=True)
                     d.insert(0, "Semestre", sem)
+                    
                     if 'Inscrição' in d.columns:
-                        d['Inscrição'] = d['Inscrição'].astype(str).str.replace('.','', regex=False).str.strip()
+                        d['Inscrição'] = d['Inscrição'].str.replace('.','', regex=False).str.strip()
+                        
                     dfs.append(d)
                 except Exception as ex:
                     self.log(f"❌ [ERRO] Falha ao ler {sem}: {ex}", "red")
@@ -424,22 +431,46 @@ class AutomacaoContratos:
             df_final = pd.concat(dfs, ignore_index=True)
             self.update_progress(3)
             
-            def limpar_cpf(v):
-                if pd.isna(v) or str(v).strip() == '': return ""
-                s = str(v).replace('.0', '')
-                s = ''.join(filter(str.isdigit, s))
-                return s.zfill(11)
+            # =========================================================================
+            # CORREÇÃO BLINDADA DE TIPOS (Elimina erro verde do Excel)
+            # =========================================================================
+            def converter_para_numero_real(valor):
+                """Converte string suja para número inteiro (Int64) ou NaN"""
+                if pd.isna(valor): return pd.NA
+                s = str(valor).strip()
+                if not s: return pd.NA
+                s = s.split('.')[0] # Remove decimal se houver
+                s = ''.join(filter(str.isdigit, s)) # Mantém só dígitos
+                if not s: return pd.NA
+                return int(s)
 
-            if 'CPF' in df_final.columns: df_final['CPF'] = df_final['CPF'].apply(limpar_cpf)
-            if 'Gemini CPF' in df_final.columns: df_final['Gemini CPF'] = df_final['Gemini CPF'].apply(limpar_cpf)
+            # 1. Converter colunas chave para NÚMERO REAL
+            colunas_numericas = ['Inscrição', 'CPF', 'Gemini CPF']
+            for col in colunas_numericas:
+                if col in df_final.columns:
+                    df_final[col] = df_final[col].apply(converter_para_numero_real).astype('Int64')
+
+            # 2. Conversão de DATA para STRING (DD/MM/YYYY)
+            # Convertemos para TEXTO puro para garantir que o Excel não invente formato americano
+            if 'Data Processamento' in df_final.columns:
+                 # Primeiro garante que é datetime para poder formatar
+                 df_final['Data Processamento'] = pd.to_datetime(df_final['Data Processamento'], errors='coerce')
+                 # Converte para String formatada
+                 df_final['Data Processamento'] = df_final['Data Processamento'].dt.strftime('%d/%m/%Y').fillna('')
 
             self.log("🔄 [DADOS] Cruzando informações (SQL x Excel)...", "cyan")
+            
+            # 3. Converter SQL para número também para o merge funcionar
             if not df_sql.empty:
+                df_sql['uni_codigo'] = df_sql['uni_codigo'].apply(converter_para_numero_real).astype('Int64')
+                
+                # Merge usando chaves numéricas
                 df_final = pd.merge(df_final, df_sql, left_on=['Inscrição','Semestre'], right_on=['uni_codigo','semestre'], how='left')
                 df_final.drop(columns=['uni_codigo'], errors='ignore', inplace=True)
             
             df_final.sort_values(by=['Inscrição', 'Semestre'], ascending=[True, True], inplace=True)
 
+            # Smart Fill (Preenchimento inteligente)
             cols_to_fill = ['tipo_bolsa_final']
             for col in cols_to_fill:
                 if col in df_final.columns:
@@ -453,6 +484,7 @@ class AutomacaoContratos:
             if 'tipo_pagto' in df_final.columns:
                 df_final['tipo_pagto'] = df_final['tipo_pagto'].fillna("")
 
+            # Cálculos Financeiros
             cols_financeiras = ['Mensalidade S/ Desconto', 'Mensalidade C/ Desconto', 'Gemini Mensalidade S/ Desconto', 'Gemini Mensalidade C/ Desconto']
             for col in cols_financeiras:
                 if col in df_final.columns: df_final[col] = pd.to_numeric(df_final[col], errors='coerce').fillna(0.0)
@@ -478,9 +510,15 @@ class AutomacaoContratos:
             writer = pd.ExcelWriter(ARQUIVO_SAIDA, engine='xlsxwriter')
             workbook = writer.book
             
+            # FORMATOS CORRIGIDOS
+            # CPF: Máscara visual de 11 zeros (00000000123)
+            fmt_cpf_mask = workbook.add_format({'num_format': '00000000000'})
+            fmt_numero_puro = workbook.add_format({'num_format': '0'})
+            
             fmt_texto = workbook.add_format({'num_format': '@'}) 
             fmt_moeda = workbook.add_format({'num_format': 'R$ #,##0.00'})
             fmt_inteiro = workbook.add_format({'num_format': '0'})
+            
             fmt_alerta = workbook.add_format({'bold': True, 'font_color': '#9C0006', 'bg_color': '#FFC7CE'})
             fmt_valido = workbook.add_format({'bold': True, 'font_color': '#006100', 'bg_color': '#C6EFCE'})
             fmt_invalido = workbook.add_format({'bold': True, 'font_color': '#9C0006', 'bg_color': '#FFC7CE'})
@@ -491,6 +529,7 @@ class AutomacaoContratos:
                 df_aba = df_final[df_final['Semestre'].str.startswith(str(ano))].copy()
                 nome_aba = f"Contratos {ano}"
                 
+                # Escreve os números reais no Excel
                 df_aba.to_excel(writer, sheet_name=nome_aba, startrow=1, header=False, index=False)
                 worksheet = writer.sheets[nome_aba]
                 
@@ -503,21 +542,33 @@ class AutomacaoContratos:
                 })
 
                 lista_cols_moeda = cols_financeiras + ['Dif. s/Desc.', 'Dif. c/Desc.', 'valor_ultima_bolsa_paga']
-                faixas_cpfs = []
 
                 for i, col in enumerate(df_aba.columns):
+                    # LARGURA AUTOMÁTICA SEGURA (Evita 'float has no len')
                     largura = 15
                     try:
-                        largura = max(df_aba[col].astype(str).map(len).max(), len(str(col))) + 2
-                        largura = min(largura, 60)
+                        amostra = df_aba[col].head(20)
+                        if not amostra.empty:
+                            # Converte para string explicitamente antes de medir
+                            max_len = amostra.apply(lambda x: len(str(x)) if pd.notnull(x) else 0).max()
+                            largura = max(max_len, len(str(col))) + 3
+                            largura = min(largura, 60)
                     except: pass
 
-                    if col in lista_cols_moeda: worksheet.set_column(i, i, largura, fmt_moeda)
-                    elif col == 'qtd_pagtos': worksheet.set_column(i, i, largura, fmt_inteiro)
-                    elif 'CPF' in col or col == 'Inscrição':
-                        worksheet.set_column(i, i, largura + 3, fmt_texto)
-                        faixas_cpfs.append(f"{xl_col_to_name(i)}2:{xl_col_to_name(i)}{max_row+1}")
-                    else: worksheet.set_column(i, i, largura)
+                    # APLICAÇÃO DOS FORMATOS
+                    if col in lista_cols_moeda: 
+                        worksheet.set_column(i, i, largura, fmt_moeda)
+                    elif 'CPF' in col: 
+                        worksheet.set_column(i, i, 16, fmt_cpf_mask) # Máscara CPF
+                    elif col == 'Inscrição':
+                        worksheet.set_column(i, i, largura, fmt_numero_puro) # Número sem zeros à esquerda
+                    elif col == 'qtd_pagtos': 
+                        worksheet.set_column(i, i, largura, fmt_inteiro)
+                    elif col == 'Data Processamento':
+                        # DATA COMO TEXTO: Garante 27/01/2026 fixo, sem interpretação americana
+                        worksheet.set_column(i, i, 16, fmt_texto)
+                    else: 
+                        worksheet.set_column(i, i, largura) # Geral
 
                     if col in ['Dif. s/Desc.', 'Dif. c/Desc.']:
                         worksheet.conditional_format(1, i, max_row, i, {'type': 'cell', 'criteria': '!=', 'value': 0, 'format': fmt_alerta})
@@ -526,8 +577,7 @@ class AutomacaoContratos:
                         worksheet.conditional_format(1, i, max_row, i, {'type': 'text', 'criteria': 'begins with', 'value': 'V', 'format': fmt_valido})
                         worksheet.conditional_format(1, i, max_row, i, {'type': 'text', 'criteria': 'begins with', 'value': 'I', 'format': fmt_invalido})
 
-                if faixas_cpfs:
-                    worksheet.ignore_errors({'number_stored_as_text': ' '.join(faixas_cpfs)})
+                # NÃO USAMOS MAIS ignore_errors, pois agora são números legítimos
 
             writer.close()
             return True
