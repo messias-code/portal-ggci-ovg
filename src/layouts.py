@@ -355,8 +355,8 @@ def layout_ferramenta_analise_contratos():
         "borderRadius": "6px",
         "width": "100%"
     }
-    
-    # MODAL DE DOWNLOAD
+
+    # MODAL DE DOWNLOAD COM CORES INVERTIDAS
     modal_download = dbc.Modal([
         dbc.ModalHeader(dbc.ModalTitle("Opções de Download", className="fw-bold"), close_button=True, style={"borderBottom": f"1px solid {OVG_ROSA_CLARO}"}),
         dbc.ModalBody([
@@ -364,16 +364,16 @@ def layout_ferramenta_analise_contratos():
             dbc.Row([
                 dbc.Col(dbc.Button(
                     [DashIconify(icon="lucide:file-spreadsheet", width=30, className="mb-2", style={"display": "block", "margin": "0 auto"}), "Planilha Principal", html.Br(), html.Span("(Apenas relatório final)", style={"fontSize": "0.75rem", "fontWeight": "normal"})], 
-                    id="btn-baixar-principal", className="w-100 fw-bold py-3 h-100", style={"backgroundColor": OVG_ROXO_REAL, "border": "none", "color": "white", "borderRadius": "12px"}
+                    id="btn-baixar-principal", className="w-100 fw-bold py-3 h-100", style={"backgroundColor": OVG_ROXO_REAL, "border": "none", "color": "white", "borderRadius": "12px", "boxShadow": "0 4px 10px rgba(142, 68, 173, 0.4)"}
                 ), width=6),
                 dbc.Col(dbc.Button(
                     [DashIconify(icon="lucide:folder-archive", width=30, className="mb-2", style={"display": "block", "margin": "0 auto"}), "Pacote Completo", html.Br(), html.Span("(Bases, ZIP e Temporários)", style={"fontSize": "0.75rem", "fontWeight": "normal"})], 
-                    id="btn-baixar-completo", className="w-100 fw-bold py-3 h-100", outline=True, color="info", style={"borderRadius": "12px"}
+                    id="btn-baixar-completo", className="w-100 fw-bold py-3 h-100", outline=True, color="light", style={"borderRadius": "12px", "borderWidth": "2px"}
                 ), width=6),
             ], className="g-3")
         ], className="p-4")
     ], id="modal-download-contratos", is_open=False, size="lg", centered=True)
-    
+
     return html.Div(className="container-fluid p-3 p-md-4", children=[ 
         html.Div(className="main-container d-flex flex-column", style={"height": "90vh", "maxWidth": "1400px", "margin": "20px auto 0 auto", "overflow": "hidden"}, children=[
             

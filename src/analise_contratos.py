@@ -48,17 +48,15 @@ ARQUIVO_ZIP_FINAL = os.path.join(DIR_RELATORIO_FINAL, "relatorios_contratos.zip"
 
 def matar_driver_forca_bruta(driver):
     if driver:
-        pid = None
-        try: pid = driver.service.process.pid
+        try:
+            pid = driver.service.process.pid
+            proc = psutil.Process(pid)
+            for child in proc.children(recursive=True): 
+                child.kill()
+            proc.kill()
         except: pass
         try: driver.quit()
         except: pass
-        if pid:
-            try:
-                proc = psutil.Process(pid)
-                for child in proc.children(recursive=True): child.kill()
-                proc.kill()
-            except: pass
 
 def padronizar_texto(texto):
     if pd.isna(texto): return ""
@@ -87,6 +85,7 @@ class AutomacaoContratos:
     def inicializar(self):
         self.is_running = False
         self.progress = 0.0
+        self.target_progress = 0.0 # Controla o destino visual da barra (Efeito fluido)
         self.logs = []
         self.semestres = [
             {"label": "2025-1", "value": "2025-1##@@2025-1"},
@@ -112,11 +111,29 @@ class AutomacaoContratos:
 
     def update_progress(self, amount):
         with self.lock:
-            self.progress += amount
-            if self.progress > 99: self.progress = 99
+            self.target_progress += amount
+            if self.target_progress > 99: 
+                self.target_progress = 99
 
     def get_status(self):
         with self.lock:
+            # INTERPOLAÇÃO VISUAL: Avança a barra de forma fluida rumo ao target_progress sem pausar o Python!
+            if self.is_running and self.progress < self.target_progress:
+                distancia = self.target_progress - self.progress
+                if distancia > 15:
+                    passo = 1.5
+                elif distancia > 5:
+                    passo = 1.0
+                else:
+                    passo = 0.5
+                
+                self.progress += passo
+                if self.progress > self.target_progress:
+                    self.progress = self.target_progress
+            
+            if self.status_final == "success":
+                self.progress = 100
+
             return {
                 "progress": int(self.progress),
                 "logs": list(self.logs),
@@ -135,7 +152,8 @@ class AutomacaoContratos:
         if self.is_running: return
         self.is_running = True
         self.stop_event.clear()
-        self.progress = 0
+        self.progress = 0.0
+        self.target_progress = 0.0
         self.logs = [] 
         self.arquivo_gerado = None
         self.arquivo_principal = None
@@ -148,11 +166,18 @@ class AutomacaoContratos:
     def stop(self):
         if self.is_running:
             self.stop_event.set()
-            self.log("⚙️ [USUÁRIO] Parada forçada solicitada.", "red")
-            with self.lock:
-                for driver in self.active_drivers:
+            self.log("⚙️ [USUÁRIO] Parada imediata solicitada. Abortando...", "yellow")
+            self.is_running = False 
+            self.status_final = "error"
+            
+            def _kill_drivers():
+                with self.lock:
+                    drivers_copy = self.active_drivers.copy()
+                    self.active_drivers.clear()
+                for driver in drivers_copy:
                     matar_driver_forca_bruta(driver)
-                self.active_drivers = []
+                    
+            threading.Thread(target=_kill_drivers).start()
 
     def _run_process(self):
         try:
@@ -170,18 +195,21 @@ class AutomacaoContratos:
                 for future in concurrent.futures.as_completed(futures):
                     if self.stop_event.is_set(): break
                     try: future.result()
-                    except Exception as e: self.log(f"⚙️ [ERRO] Falha em thread: {e}", "red")
+                    except Exception as e: 
+                        if not self.stop_event.is_set():
+                            pass
 
             if self.stop_event.is_set():
                 self.is_running = False
                 return
 
             self.log("⚙️ [SISTEMA] Iniciando consolidação e cruzamento de dados...", "#FFCE54")
+            self.target_progress = 45 # Prepara o alvo para a fase final
             sucesso = self.consolidar_contratos_e_pendencias_com_correcao()
             
             if sucesso:
                 self.log("📂 [SISTEMA] Compactando relatórios finais em formato ZIP...", "cyan")
-                self.update_progress(5)
+                self.target_progress = 100
                 
                 with zipfile.ZipFile(ARQUIVO_ZIP_FINAL, 'w', zipfile.ZIP_DEFLATED) as zipf:
                     for root, dirs, files in os.walk(DIR_RELATORIO_FINAL):
@@ -244,10 +272,14 @@ class AutomacaoContratos:
                 sucesso = self._contratos_navegador(dados_semestre)
                 if sucesso:
                     self.log(f"✅ [{nome}] Planilha salva com sucesso!", "#A0D468")
-                    self.update_progress(5) 
+                    self.update_progress(10) 
                     return True
             except Exception as e:
-                if tentativa < self.MAX_TENTATIVAS and not self.stop_event.is_set():
+                if self.stop_event.is_set():
+                    self.log(f"⚙️ [{nome}] Extração cancelada.", "yellow")
+                    return False
+                
+                if tentativa < self.MAX_TENTATIVAS:
                     self.log(f"⚙️ [{nome}] Erro ao baixar ({str(e)}), repetindo...", "yellow")
                     time.sleep(3)
                 else:
@@ -298,7 +330,6 @@ class AutomacaoContratos:
             wait.until(EC.visibility_of_element_located((By.CSS_SELECTOR, "#id_sc_field_login"))).send_keys("ihan.santos")
             wait.until(EC.visibility_of_element_located((By.CSS_SELECTOR, "input[type='password']"))).send_keys("M@vis-08")
             wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "#login1 > form > div.submit > input"))).click()
-            self.update_progress(2)
             
             if self.stop_event.is_set(): raise Exception("Cancelado")
             wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "#item_163"))).click()
@@ -329,7 +360,6 @@ class AutomacaoContratos:
             except: pass
 
             self.log(f"⚙️ [{nome_semestre}] Sistema gerando relatório. Aguardando liberação...", "gray")
-            self.update_progress(2)
 
             if self.stop_event.is_set(): raise Exception("Cancelado")
             wait.until(EC.element_to_be_clickable((By.ID, "sc_btgp_btn_group_1_top"))).click()
@@ -358,12 +388,13 @@ class AutomacaoContratos:
 
             if not btn_baixar: raise Exception("Botão de baixar não apareceu no tempo limite.")
 
-            self.update_progress(1)
             with self.download_lock:
                 driver.execute_script("arguments[0].click();", btn_baixar)
                 
                 arquivo_encontrado = None
-                for _ in range(240):
+                # REDUZIDO O TEMPO MAX DE ESPERA DE DOWNLOAD (60 segundos)
+                # Assim a fila anda rápido e evita o gargalo de 4 minutos visto nos logs.
+                for _ in range(60):
                     if self.stop_event.is_set(): break 
 
                     if not os.path.exists(pasta_temp): break
@@ -381,7 +412,6 @@ class AutomacaoContratos:
                     if os.path.exists(caminho_final): os.remove(caminho_final)
                     shutil.move(arquivo_encontrado, caminho_final)
                     shutil.rmtree(pasta_temp, ignore_errors=True)
-                    self.update_progress(3)
                     return True
                 else:
                     raise Exception("Download travou ou não foi concluído no tempo limite.")
@@ -502,7 +532,7 @@ class AutomacaoContratos:
             matar_driver_forca_bruta(driver)
             driver = None
 
-            self.log("⚙️ [Base Auxiliar] Consolidando dados...", "#FFCE54")
+            self.log("📋 [Base Auxiliar] Consolidando dados...", "#FFCE54")
             caminho_consolidada = os.path.join(DIR_RELATORIO_PAGAMENTOS, "consolidada")
             if not os.path.exists(caminho_consolidada): os.makedirs(caminho_consolidada, exist_ok=True)
             
@@ -515,7 +545,6 @@ class AutomacaoContratos:
             
             for full_p in arquivos_totais:
                 if self.stop_event.is_set(): break
-                self.update_progress(0.2)
                 try:
                     df_temp = None
                     try: df_temp = pd.read_excel(full_p)
@@ -551,7 +580,6 @@ class AutomacaoContratos:
                 with pd.ExcelWriter(ARQUIVO_PAGAMENTOS_CONSOLIDADO, engine='openpyxl') as writer:
                     df_u.to_excel(writer, sheet_name='rel_pagamentos', index=False)
                 
-                self.update_progress(1.6)
                 self.log("✅ [Base Auxiliar] Relatórios financeiros processados.", "#A0D468")
 
         except Exception as e:
@@ -575,6 +603,7 @@ class AutomacaoContratos:
         if self.stop_event.is_set(): return False
         
         self.log("📂 [MERGE] Lendo dados exportados...", "cyan")
+        self.target_progress = 50
         padrao = os.path.join(DIR_EXPORTS, "export_*.xlsx")
         arquivos_excel = glob.glob(padrao)
         arquivos_excel.sort() 
@@ -594,8 +623,6 @@ class AutomacaoContratos:
                 lista_dfs.append(df_temp)
             except: pass
 
-        self.update_progress(5)
-
         dfs_validos = [df.dropna(axis=1, how='all') for df in lista_dfs if not df.empty]
         if not dfs_validos: return False
         
@@ -609,6 +636,7 @@ class AutomacaoContratos:
             df_contratos['Data Processamento'] = pd.to_datetime(df_contratos['Data Processamento'], dayfirst=True, errors='coerce').dt.strftime('%d/%m/%Y').fillna('')
 
         self.log("⚙️ [SQL] Acessando DB e coletando informações...", "cyan")
+        self.target_progress = 68 # Prepara a barra de progresso para a consulta pesada (Sobe gradativo por 40s)
         
         DB_HOST, DB_USER, DB_PASS, DB_NAME = "10.237.1.16", "bi_ovg", "bi_ovg@#$124as65", "sibu"
         df_sql = pd.DataFrame()
@@ -629,9 +657,9 @@ class AutomacaoContratos:
         except Exception as e:
             pass
         
-        self.update_progress(10)
-        
         self.log("🔄 [MERGE] Cruzando dados e aplicando regras de negocio...", "cyan")
+        self.target_progress = 72
+        
         if not df_sql.empty:
             df_contratos = pd.merge(df_contratos, df_sql, left_on=['Inscrição', 'Semestre'], right_on=['uni_codigo', 'semestre'], how='left')
             df_contratos.drop(columns=['uni_codigo'], errors='ignore', inplace=True)
@@ -661,8 +689,6 @@ class AutomacaoContratos:
         if 'Faculdade' in df_contratos.columns:
             df_contratos['Faculdade'] = df_contratos['Faculdade'].apply(padronizar_texto)
 
-        self.update_progress(10)
-
         df_contratos['Mudou IES?'] = "N/A" 
         df_contratos['IES Anterior'] = "N/A"
         df_contratos['Mudou Bolsa?'] = "N/A"
@@ -680,6 +706,7 @@ class AutomacaoContratos:
         df_pendentes_div = pd.DataFrame(columns=df_contratos_div.columns)
         
         self.log("⚙️ [ANÁLISE] Identificando mudanças de trajetória escolar...", "cyan")
+        self.target_progress = 85
         
         if os.path.exists(ARQUIVO_PAGAMENTOS_CONSOLIDADO):
             df_pag = pd.read_excel(ARQUIVO_PAGAMENTOS_CONSOLIDADO)
@@ -727,8 +754,8 @@ class AutomacaoContratos:
                 set_contratos_div = set(df_contratos_div['KEY_DIV'])
                 df_diff_div = df_pag[~df_pag['KEY_DIV'].isin(set_contratos_div)].copy()
                 
-                self.update_progress(10)
                 self.log("📝 [ANÁLISE] Estruturando relatórios de pendências e divergências...", "cyan")
+                self.target_progress = 90
 
                 if not df_diff_div.empty:
                     df_pendentes_div['Semestre'] = df_diff_div['SEMESTRE']
@@ -810,8 +837,8 @@ class AutomacaoContratos:
                 
                 df_contratos.drop(columns=['KEY_EXISTENCIA'], inplace=True, errors='ignore')
 
-        self.update_progress(10)
         self.log("🎨 [EXCEL] Aplicando estilização e salvando dados...", "cyan")
+        self.target_progress = 98
         
         writer_div = pd.ExcelWriter(ARQUIVO_DIVERGENCIAS, engine='xlsxwriter')
         self._aplicar_estilo_tabela(writer_div, df_contratos_div, "divergencias")
@@ -832,8 +859,6 @@ class AutomacaoContratos:
             
         self._aplicar_estilo_tabela(writer, df_final_principal, "CONTRATOS")
         writer.close()
-        
-        self.update_progress(10)
         
         return True
 
