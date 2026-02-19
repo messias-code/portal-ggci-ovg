@@ -545,16 +545,41 @@ def atualizar_status_robo(n):
             False if arquivo_pronto else True # Btn Baixar LIBERADO se tiver arquivo
         )
 
-# Callback para Download do Arquivo
+# Callback para Abrir o Modal de Download
 @callback(
-    Output("download-relatorio-component", "data"),
+    Output("modal-download-contratos", "is_open"),
     Input("btn-salvar-relatorio", "n_clicks"),
     prevent_initial_call=True
 )
-def baixar_relatorio_final(n):
-    if robo_contratos.arquivo_gerado and os.path.exists(robo_contratos.arquivo_gerado):
-        return dcc.send_file(robo_contratos.arquivo_gerado)
-    return no_update
+def abrir_modal_download(n):
+    if n: return True
+    return False
+
+# Callback para os botões dentro do Modal
+@callback(
+    Output("download-relatorio-component", "data"),
+    Output("modal-download-contratos", "is_open", allow_duplicate=True),
+    Input("btn-baixar-principal", "n_clicks"),
+    Input("btn-baixar-completo", "n_clicks"),
+    prevent_initial_call=True
+)
+def baixar_arquivo_selecionado(n_princ, n_comp):
+    trig = ctx.triggered_id
+    if not trig: return no_update, no_update
+    
+    status = robo_contratos.get_status()
+    
+    if trig == "btn-baixar-principal":
+        caminho = status.get('arquivo_principal')
+        if caminho and os.path.exists(caminho):
+            return dcc.send_file(caminho), False
+            
+    elif trig == "btn-baixar-completo":
+        caminho = status.get('arquivo_gerado')
+        if caminho and os.path.exists(caminho):
+            return dcc.send_file(caminho), False
+            
+    return no_update, no_update
 
 # =============================================================================
 # MAIN (EXECUÇÃO)

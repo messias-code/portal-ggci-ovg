@@ -182,7 +182,7 @@ def layout_menu_softwares(user_data):
 
                 dbc.Col([dcc.Link(html.Div(className="app-card-hover", children=[
                             DashIconify(icon="lucide:bot", width=65, color=OVG_ROXO_REAL), 
-                            html.H5("Analise de Contratos IA", className="mt-4 text-center fw-bold", style={"color": "white", "marginBottom": "5px"}),
+                            html.H5("Analise de Documentações IA", className="mt-4 text-center fw-bold", style={"color": "white", "marginBottom": "5px"}),
                             html.Span("Extrator de dados processados", className="text-center small text-muted", style={"fontSize": "0.85rem"})
                         ], style=estilo_card_menu(OVG_ROXO_REAL)), href="/softwares/analise-contratos", style={"textDecoration": "none"})
                 ], width="100%", md="auto", className="m-3 d-flex justify-content-center"),
@@ -355,7 +355,25 @@ def layout_ferramenta_analise_contratos():
         "borderRadius": "6px",
         "width": "100%"
     }
-
+    
+    # MODAL DE DOWNLOAD
+    modal_download = dbc.Modal([
+        dbc.ModalHeader(dbc.ModalTitle("Opções de Download", className="fw-bold"), close_button=True, style={"borderBottom": f"1px solid {OVG_ROSA_CLARO}"}),
+        dbc.ModalBody([
+            html.P("Como você deseja baixar os resultados?", className="text-muted text-center mb-4"),
+            dbc.Row([
+                dbc.Col(dbc.Button(
+                    [DashIconify(icon="lucide:file-spreadsheet", width=30, className="mb-2", style={"display": "block", "margin": "0 auto"}), "Planilha Principal", html.Br(), html.Span("(Apenas relatório final)", style={"fontSize": "0.75rem", "fontWeight": "normal"})], 
+                    id="btn-baixar-principal", className="w-100 fw-bold py-3 h-100", style={"backgroundColor": OVG_ROXO_REAL, "border": "none", "color": "white", "borderRadius": "12px"}
+                ), width=6),
+                dbc.Col(dbc.Button(
+                    [DashIconify(icon="lucide:folder-archive", width=30, className="mb-2", style={"display": "block", "margin": "0 auto"}), "Pacote Completo", html.Br(), html.Span("(Bases, ZIP e Temporários)", style={"fontSize": "0.75rem", "fontWeight": "normal"})], 
+                    id="btn-baixar-completo", className="w-100 fw-bold py-3 h-100", outline=True, color="info", style={"borderRadius": "12px"}
+                ), width=6),
+            ], className="g-3")
+        ], className="p-4")
+    ], id="modal-download-contratos", is_open=False, size="lg", centered=True)
+    
     return html.Div(className="container-fluid p-3 p-md-4", children=[ 
         html.Div(className="main-container d-flex flex-column", style={"height": "90vh", "maxWidth": "1400px", "margin": "20px auto 0 auto", "overflow": "hidden"}, children=[
             
@@ -363,7 +381,7 @@ def layout_ferramenta_analise_contratos():
             # --- CABEÇALHO ---
             dbc.Row([
                 dbc.Col([
-                    html.H3([DashIconify(icon="lucide:bot", className="me-2", color=OVG_ROXO_REAL), "Analise de Contratos IA"], className="m-0 fw-bold"), 
+                    html.H3([DashIconify(icon="lucide:bot", className="me-2", color=OVG_ROXO_REAL), "Analise de Documentações IA"], className="m-0 fw-bold"), 
                     html.Span("Automação para Análise Contratos Processados (Selenium + SQL)", className="text-muted", style={"fontSize": "1.1rem"})
                 ]),
                 dbc.Col(dbc.Button([DashIconify(icon="lucide:arrow-left-circle", width=24, className="me-2"), "Voltar"], href="/softwares", color="light", outline=True, className="btn-nav"), width="auto", className="ms-auto d-flex align-items-center")
@@ -475,6 +493,7 @@ def layout_ferramenta_analise_contratos():
 
             ], style={"flex": "1", "display": "flex", "flexDirection": "column", "overflow": "hidden"}),
             
+            modal_download,
             dcc.Interval(id="intervalo-simulacao", interval=800, n_intervals=0, disabled=True),
             dcc.Store(id="store-simulacao-estado", data={"progress": 0, "logs": []})
         ])

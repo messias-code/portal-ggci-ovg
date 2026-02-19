@@ -46,10 +46,6 @@ ARQUIVO_SAIDA_CONTRATOS = os.path.join(DIR_RELATORIO_FINAL, "relatorio_anual_de_
 ARQUIVO_PAGAMENTOS_CONSOLIDADO = os.path.join(DIR_RELATORIO_PAGAMENTOS, "consolidada", "rel_pagamentos_anual_consolidado.xlsx")
 ARQUIVO_ZIP_FINAL = os.path.join(DIR_RELATORIO_FINAL, "relatorios_contratos.zip")
 
-for pasta in [DIR_EXPORTS, DIR_RELATORIO_FINAL, PASTA_TEMP_PAGAMENTOS, DIR_RELATORIO_PAGAMENTOS]:
-    if not os.path.exists(pasta):
-        os.makedirs(pasta, exist_ok=True)
-
 def matar_driver_forca_bruta(driver):
     if driver:
         pid = None
@@ -103,6 +99,7 @@ class AutomacaoContratos:
         self.stop_event = threading.Event()
         self.thread = None
         self.arquivo_gerado = None
+        self.arquivo_principal = None
         self.status_final = ""
         self.active_drivers = []
         self.start_time = None
@@ -125,8 +122,14 @@ class AutomacaoContratos:
                 "logs": list(self.logs),
                 "is_running": self.is_running,
                 "arquivo_gerado": self.arquivo_gerado,
+                "arquivo_principal": self.arquivo_principal,
                 "status_final": self.status_final
             }
+
+    def _garantir_pastas(self):
+        for pasta in [DIR_EXPORTS, DIR_RELATORIO_FINAL, PASTA_TEMP_PAGAMENTOS, DIR_RELATORIO_PAGAMENTOS]:
+            if not os.path.exists(pasta):
+                os.makedirs(pasta, exist_ok=True)
 
     def start(self):
         if self.is_running: return
@@ -135,6 +138,7 @@ class AutomacaoContratos:
         self.progress = 0
         self.logs = [] 
         self.arquivo_gerado = None
+        self.arquivo_principal = None
         self.status_final = ""
         self.active_drivers = []
         self.start_time = time.time()
@@ -144,7 +148,7 @@ class AutomacaoContratos:
     def stop(self):
         if self.is_running:
             self.stop_event.set()
-            self.log("🚫 [USUÁRIO] Parada forçada solicitada.", "red")
+            self.log("⚙️ [USUÁRIO] Parada forçada solicitada.", "red")
             with self.lock:
                 for driver in self.active_drivers:
                     matar_driver_forca_bruta(driver)
@@ -152,7 +156,8 @@ class AutomacaoContratos:
 
     def _run_process(self):
         try:
-            self.log("🚀 [SISTEMA] Iniciando módulo de automação...", "white")
+            self._garantir_pastas()
+            self.log("⚙️ [SISTEMA] Iniciando módulo de automação...", "white")
             self.update_progress(2)
             
             with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
@@ -165,25 +170,38 @@ class AutomacaoContratos:
                 for future in concurrent.futures.as_completed(futures):
                     if self.stop_event.is_set(): break
                     try: future.result()
-                    except Exception as e: self.log(f"❌ [ERRO] Falha em thread: {e}", "red")
+                    except Exception as e: self.log(f"⚙️ [ERRO] Falha em thread: {e}", "red")
 
             if self.stop_event.is_set():
                 self.is_running = False
                 return
 
-            self.log("📦 [SISTEMA] Iniciando consolidação e cruzamento de dados...", "#FFCE54")
+            self.log("⚙️ [SISTEMA] Iniciando consolidação e cruzamento de dados...", "#FFCE54")
             sucesso = self.consolidar_contratos_e_pendencias_com_correcao()
             
             if sucesso:
-                self.log("🗜️ [SISTEMA] Compactando relatórios finais em formato ZIP...", "cyan")
-                self.update_progress(4)
+                self.log("📂 [SISTEMA] Compactando relatórios finais em formato ZIP...", "cyan")
+                self.update_progress(5)
+                
                 with zipfile.ZipFile(ARQUIVO_ZIP_FINAL, 'w', zipfile.ZIP_DEFLATED) as zipf:
-                    if os.path.exists(ARQUIVO_SAIDA_CONTRATOS):
-                        zipf.write(ARQUIVO_SAIDA_CONTRATOS, os.path.basename(ARQUIVO_SAIDA_CONTRATOS))
-                    if os.path.exists(ARQUIVO_DIVERGENCIAS):
-                        zipf.write(ARQUIVO_DIVERGENCIAS, os.path.basename(ARQUIVO_DIVERGENCIAS))
+                    for root, dirs, files in os.walk(DIR_RELATORIO_FINAL):
+                        for file in files:
+                            if file != os.path.basename(ARQUIVO_ZIP_FINAL): 
+                                file_path = os.path.join(root, file)
+                                zipf.write(file_path, os.path.relpath(file_path, DIRETORIO_RAIZ))
+                    
+                    for root, dirs, files in os.walk(DIR_EXPORTS):
+                        for file in files:
+                            file_path = os.path.join(root, file)
+                            zipf.write(file_path, os.path.relpath(file_path, DIRETORIO_RAIZ))
+                            
+                    for root, dirs, files in os.walk(DIR_RELATORIO_PAGAMENTOS):
+                        for file in files:
+                            file_path = os.path.join(root, file)
+                            zipf.write(file_path, os.path.relpath(file_path, DIRETORIO_RAIZ))
                 
                 self.arquivo_gerado = ARQUIVO_ZIP_FINAL
+                self.arquivo_principal = ARQUIVO_SAIDA_CONTRATOS
 
             self._limpar_temporarios()
 
@@ -193,14 +211,14 @@ class AutomacaoContratos:
             if sucesso:
                 self.progress = 100
                 self.status_final = "success"
-                self.log(f"🏆 [SUCESSO] Processo finalizado com maestria em {tempo_fmt}", "#A0D468")
+                self.log(f"🏆 [SUCESSO] Processo finalizado em {tempo_fmt}", "#A0D468")
             else:
                 self.status_final = "error"
-                self.log("❌ [ERRO] Falha na geração do relatório final.", "red")
+                self.log("⚙️ [ERRO] Falha na geração do relatório final.", "red")
 
         except Exception as e:
             if not self.stop_event.is_set():
-                self.log(f"🔥 [CRÍTICO] Erro inesperado: {str(e)}", "red")
+                self.log(f"⚙️ [CRÍTICO] Erro inesperado: {str(e)}", "red")
                 self.status_final = "error"
         finally:
             self.is_running = False
@@ -219,9 +237,9 @@ class AutomacaoContratos:
             if self.stop_event.is_set(): break
             try:
                 if tentativa == 1:
-                    self.log(f"▶️ [{nome}] Acessando portal e aplicando filtros...", "cyan")
+                    self.log(f"⚙️ [{nome}] Acessando portal e aplicando filtros...", "cyan")
                 else:
-                    self.log(f"▶️ [{nome}] Tentativa {tentativa}: Reiniciando extração...", "yellow")
+                    self.log(f"⚙️ [{nome}] Tentativa {tentativa}: Reiniciando extração...", "yellow")
                 
                 sucesso = self._contratos_navegador(dados_semestre)
                 if sucesso:
@@ -230,9 +248,10 @@ class AutomacaoContratos:
                     return True
             except Exception as e:
                 if tentativa < self.MAX_TENTATIVAS and not self.stop_event.is_set():
+                    self.log(f"⚙️ [{nome}] Erro ao baixar ({str(e)}), repetindo...", "yellow")
                     time.sleep(3)
                 else:
-                    self.log(f"❌ [{nome}] Falha crítica de extração.", "red")
+                    self.log(f"⚙️ [{nome}] Falha crítica de extração.", "red")
                     return False
 
     def _contratos_navegador(self, dados_semestre):
@@ -339,9 +358,8 @@ class AutomacaoContratos:
 
             if not btn_baixar: raise Exception("Botão de baixar não apareceu no tempo limite.")
 
+            self.update_progress(1)
             with self.download_lock:
-                self.log(f"⬇️ [{nome_semestre}] Transferindo arquivo para a máquina (Download Exclusivo)...", "cyan")
-                self.update_progress(3)
                 driver.execute_script("arguments[0].click();", btn_baixar)
                 
                 arquivo_encontrado = None
@@ -350,13 +368,14 @@ class AutomacaoContratos:
 
                     if not os.path.exists(pasta_temp): break
                     arquivos = os.listdir(pasta_temp)
-                    validos = [f for f in arquivos if not f.endswith('.crdownload') and not f.endswith('.tmp')]
+                    validos = [f for f in arquivos if f.endswith(('.xlsx', '.xls')) and not f.startswith('.')]
                     if validos:
                         arquivo_encontrado = os.path.join(pasta_temp, validos[0])
                         break
                     time.sleep(1)
 
                 if arquivo_encontrado:
+                    time.sleep(1.5) 
                     nome_final = f"export_{nome_semestre}.xlsx"
                     caminho_final = os.path.join(DIR_EXPORTS, nome_final)
                     if os.path.exists(caminho_final): os.remove(caminho_final)
@@ -365,7 +384,7 @@ class AutomacaoContratos:
                     self.update_progress(3)
                     return True
                 else:
-                    raise Exception("Download travou no status .crdownload.")
+                    raise Exception("Download travou ou não foi concluído no tempo limite.")
 
         except Exception as e:
             raise e
@@ -380,7 +399,7 @@ class AutomacaoContratos:
         driver = None
         try:
             if self.stop_event.is_set(): return
-            self.log("▶️ [Base Auxiliar] Acessando sistema financeiro...", "cyan")
+            self.log("⚙️ [Base Auxiliar] Acessando sistema financeiro...", "cyan")
             self.update_progress(2)
             
             ua = UserAgent()
@@ -462,7 +481,7 @@ class AutomacaoContratos:
                         driver.switch_to.window(main_window)
 
                     try:
-                        arquivo_encontrado = WebDriverWait(driver, 15).until(lambda d: [f for f in os.listdir(PASTA_TEMP_PAGAMENTOS) if not f.endswith('.crdownload')])
+                        arquivo_encontrado = WebDriverWait(driver, 15).until(lambda d: [f for f in os.listdir(PASTA_TEMP_PAGAMENTOS) if f.endswith(('.xls', '.xlsx')) and not f.startswith('.')])
                         if arquivo_encontrado:
                             nome_arq = arquivo_encontrado[0]
                             origem = os.path.join(PASTA_TEMP_PAGAMENTOS, nome_arq)
@@ -483,7 +502,7 @@ class AutomacaoContratos:
             matar_driver_forca_bruta(driver)
             driver = None
 
-            self.log("📋 [Base Auxiliar] Consolidando meses em um arquivo único...", "#FFCE54")
+            self.log("⚙️ [Base Auxiliar] Consolidando dados...", "#FFCE54")
             caminho_consolidada = os.path.join(DIR_RELATORIO_PAGAMENTOS, "consolidada")
             if not os.path.exists(caminho_consolidada): os.makedirs(caminho_consolidada, exist_ok=True)
             
@@ -555,7 +574,7 @@ class AutomacaoContratos:
     def consolidar_contratos_e_pendencias_com_correcao(self):
         if self.stop_event.is_set(): return False
         
-        self.log("📂 [MERGE] Lendo planilhas de contratos recém exportadas...", "cyan")
+        self.log("📂 [MERGE] Lendo dados exportados...", "cyan")
         padrao = os.path.join(DIR_EXPORTS, "export_*.xlsx")
         arquivos_excel = glob.glob(padrao)
         arquivos_excel.sort() 
@@ -575,11 +594,13 @@ class AutomacaoContratos:
                 lista_dfs.append(df_temp)
             except: pass
 
-        self.update_progress(4)
+        self.update_progress(5)
 
-        if not lista_dfs: return False
+        dfs_validos = [df.dropna(axis=1, how='all') for df in lista_dfs if not df.empty]
+        if not dfs_validos: return False
         
-        df_contratos = pd.concat(lista_dfs, ignore_index=True)
+        df_contratos = pd.concat(dfs_validos, ignore_index=True)
+        
         colunas_numericas = ['Inscrição', 'CPF', 'Gemini CPF']
         for col in colunas_numericas:
             if col in df_contratos.columns: df_contratos[col] = df_contratos[col].apply(converter_para_numero_real).astype('Int64')
@@ -587,7 +608,7 @@ class AutomacaoContratos:
         if 'Data Processamento' in df_contratos.columns:
             df_contratos['Data Processamento'] = pd.to_datetime(df_contratos['Data Processamento'], dayfirst=True, errors='coerce').dt.strftime('%d/%m/%Y').fillna('')
 
-        self.log("🔗 [SQL] Buscando dados no banco estritamente dos alunos baixados...", "cyan")
+        self.log("⚙️ [SQL] Acessando DB e coletando informações...", "cyan")
         
         DB_HOST, DB_USER, DB_PASS, DB_NAME = "10.237.1.16", "bi_ovg", "bi_ovg@#$124as65", "sibu"
         df_sql = pd.DataFrame()
@@ -608,9 +629,9 @@ class AutomacaoContratos:
         except Exception as e:
             pass
         
-        self.update_progress(8)
+        self.update_progress(10)
         
-        self.log("🔄 [MERGE] Cruzando dados das inscrições...", "cyan")
+        self.log("🔄 [MERGE] Cruzando dados e aplicando regras de negocio...", "cyan")
         if not df_sql.empty:
             df_contratos = pd.merge(df_contratos, df_sql, left_on=['Inscrição', 'Semestre'], right_on=['uni_codigo', 'semestre'], how='left')
             df_contratos.drop(columns=['uni_codigo'], errors='ignore', inplace=True)
@@ -640,7 +661,7 @@ class AutomacaoContratos:
         if 'Faculdade' in df_contratos.columns:
             df_contratos['Faculdade'] = df_contratos['Faculdade'].apply(padronizar_texto)
 
-        self.update_progress(5)
+        self.update_progress(10)
 
         df_contratos['Mudou IES?'] = "N/A" 
         df_contratos['IES Anterior'] = "N/A"
@@ -658,7 +679,7 @@ class AutomacaoContratos:
         df_pendentes = pd.DataFrame(columns=df_contratos.columns)
         df_pendentes_div = pd.DataFrame(columns=df_contratos_div.columns)
         
-        self.log("🔬 [ANÁLISE] Identificando mudanças de trajetória escolar dos alunos...", "cyan")
+        self.log("⚙️ [ANÁLISE] Identificando mudanças de trajetória escolar...", "cyan")
         
         if os.path.exists(ARQUIVO_PAGAMENTOS_CONSOLIDADO):
             df_pag = pd.read_excel(ARQUIVO_PAGAMENTOS_CONSOLIDADO)
@@ -706,7 +727,7 @@ class AutomacaoContratos:
                 set_contratos_div = set(df_contratos_div['KEY_DIV'])
                 df_diff_div = df_pag[~df_pag['KEY_DIV'].isin(set_contratos_div)].copy()
                 
-                self.update_progress(4)
+                self.update_progress(10)
                 self.log("📝 [ANÁLISE] Estruturando relatórios de pendências e divergências...", "cyan")
 
                 if not df_diff_div.empty:
@@ -789,26 +810,30 @@ class AutomacaoContratos:
                 
                 df_contratos.drop(columns=['KEY_EXISTENCIA'], inplace=True, errors='ignore')
 
-        self.update_progress(4)
-        self.log("🎨 [EXCEL] Aplicando estilização e salvando planilhas finais...", "cyan")
+        self.update_progress(10)
+        self.log("🎨 [EXCEL] Aplicando estilização e salvando dados...", "cyan")
         
         writer_div = pd.ExcelWriter(ARQUIVO_DIVERGENCIAS, engine='xlsxwriter')
         self._aplicar_estilo_tabela(writer_div, df_contratos_div, "divergencias")
         if not df_pendentes_div.empty:
             df_pendentes_div = df_pendentes_div[col_exist] if set(col_exist).issubset(df_pendentes_div.columns) else df_pendentes_div
-            self._aplicar_estilo_tabela(writer_div, df_pendentes_div, "pendencias divergentes")
+            df_pend_div_clean = df_pendentes_div.dropna(axis=1, how='all')
+            self._aplicar_estilo_tabela(writer_div, df_pend_div_clean, "pendencias divergentes")
         writer_div.close()
         
         writer = pd.ExcelWriter(ARQUIVO_SAIDA_CONTRATOS, engine='xlsxwriter')
-        df_contratos = df_contratos[col_exist]
-        self._aplicar_estilo_tabela(writer, df_contratos, "contratos enviados")
+        df_final_principal = df_contratos[col_exist].copy()
         
         if not df_pendentes.empty:
             df_pendentes = df_pendentes[col_exist] if set(col_exist).issubset(df_pendentes.columns) else df_pendentes
-            self._aplicar_estilo_tabela(writer, df_pendentes, "contratos pendentes")
-        
+            df_p_clean = df_pendentes.dropna(axis=1, how='all')
+            if not df_p_clean.empty:
+                df_final_principal = pd.concat([df_final_principal, df_p_clean], ignore_index=True)
+            
+        self._aplicar_estilo_tabela(writer, df_final_principal, "CONTRATOS")
         writer.close()
-        self.update_progress(6)
+        
+        self.update_progress(10)
         
         return True
 
@@ -870,6 +895,7 @@ class AutomacaoContratos:
             if col == 'IA_status':
                 ws.conditional_format(1, i, mx_r, i, {'type': 'text', 'criteria': 'begins with', 'value': 'V', 'format': fmt_valido})
                 ws.conditional_format(1, i, mx_r, i, {'type': 'text', 'criteria': 'begins with', 'value': 'I', 'format': fmt_invalido})
+                ws.conditional_format(1, i, mx_r, i, {'type': 'text', 'criteria': 'begins with', 'value': 'X', 'format': fmt_invalido})
 
     def _limpar_temporarios(self):
         try:
