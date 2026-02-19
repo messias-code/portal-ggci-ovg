@@ -14,12 +14,13 @@ import numpy as np
 import threading
 import concurrent.futures
 import datetime
-import platform
 import tempfile
-import random
-from xlsxwriter.utility import xl_col_to_name
+import unicodedata
+import psutil
+import zipfile
 from urllib.parse import quote_plus
 from sqlalchemy import create_engine
+from fake_useragent import UserAgent
 
 # --- SELENIUM ---
 from selenium import webdriver
@@ -31,18 +32,52 @@ from selenium.webdriver.support.ui import Select
 from selenium.webdriver.common.action_chains import ActionChains
 from webdriver_manager.chrome import ChromeDriverManager
 
-# ADICIONE ESTA LINHA PARA SUMIR COM O AVISO:
 pd.set_option('future.no_silent_downcasting', True)
 
-# CONSTANTES
+# CONSTANTES E DIRETÓRIOS
 DIRETORIO_RAIZ = os.getcwd()
 DIR_EXPORTS = os.path.join(DIRETORIO_RAIZ, "exports_semestrais", "CONTRATOS")
 DIR_RELATORIO_FINAL = os.path.join(DIRETORIO_RAIZ, "relatorio_anual", "CONTRATOS")
-ARQUIVO_SAIDA = os.path.join(DIR_RELATORIO_FINAL, "relatorio_anual_contratos.xlsx")
+PASTA_TEMP_PAGAMENTOS = os.path.join(DIRETORIO_RAIZ, "temp_downloads_pagamentos")
+DIR_RELATORIO_PAGAMENTOS = os.path.join(DIRETORIO_RAIZ, "rel_pagamentos")
 
-for pasta in [DIR_EXPORTS, DIR_RELATORIO_FINAL]:
+ARQUIVO_DIVERGENCIAS = os.path.join(DIR_RELATORIO_FINAL, "relatorio_divergencias_contratos.xlsx")
+ARQUIVO_SAIDA_CONTRATOS = os.path.join(DIR_RELATORIO_FINAL, "relatorio_anual_de_contratos.xlsx")
+ARQUIVO_PAGAMENTOS_CONSOLIDADO = os.path.join(DIR_RELATORIO_PAGAMENTOS, "consolidada", "rel_pagamentos_anual_consolidado.xlsx")
+ARQUIVO_ZIP_FINAL = os.path.join(DIR_RELATORIO_FINAL, "relatorios_contratos.zip")
+
+for pasta in [DIR_EXPORTS, DIR_RELATORIO_FINAL, PASTA_TEMP_PAGAMENTOS, DIR_RELATORIO_PAGAMENTOS]:
     if not os.path.exists(pasta):
         os.makedirs(pasta, exist_ok=True)
+
+def matar_driver_forca_bruta(driver):
+    if driver:
+        pid = None
+        try: pid = driver.service.process.pid
+        except: pass
+        try: driver.quit()
+        except: pass
+        if pid:
+            try:
+                proc = psutil.Process(pid)
+                for child in proc.children(recursive=True): child.kill()
+                proc.kill()
+            except: pass
+
+def padronizar_texto(texto):
+    if pd.isna(texto): return ""
+    txt = str(texto).upper().strip()
+    txt = ''.join(c for c in unicodedata.normalize('NFD', txt) if unicodedata.category(c) != 'Mn')
+    txt = txt.replace('-', ' ') 
+    return ' '.join(txt.split())
+
+def converter_para_numero_real(valor):
+    if pd.isna(valor): return pd.NA
+    s = str(valor).strip().split('.')[0]
+    s = ''.join(filter(str.isdigit, s))
+    if not s: return pd.NA
+    return int(s)
+
 
 class AutomacaoContratos:
     _instance = None
@@ -62,7 +97,9 @@ class AutomacaoContratos:
             {"label": "2025-2", "value": "2025-2##@@2025-2"},
             {"label": "2026-1", "value": "2026-1##@@2026-1"},
         ]
+        self.MAX_TENTATIVAS = 3
         self.lock = threading.Lock()
+        self.download_lock = threading.Lock() 
         self.stop_event = threading.Event()
         self.thread = None
         self.arquivo_gerado = None
@@ -110,48 +147,53 @@ class AutomacaoContratos:
             self.log("🚫 [USUÁRIO] Parada forçada solicitada.", "red")
             with self.lock:
                 for driver in self.active_drivers:
-                    try: driver.quit()
-                    except: pass
+                    matar_driver_forca_bruta(driver)
                 self.active_drivers = []
 
     def _run_process(self):
         try:
             self.log("🚀 [SISTEMA] Iniciando módulo de automação...", "white")
+            self.update_progress(2)
             
-            # --- FASE 1: DOWNLOAD PARALELO (0% -> 80%) ---
-            
-            with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
-                futures = {
-                    executor.submit(self._baixar_semestre_safe, s, idx): s 
-                    for idx, s in enumerate(self.semestres)
-                }
+            with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+                futures = []
+                for dados in self.semestres:
+                    futures.append(executor.submit(self._worker_contratos_retry, dados))
+                
+                futures.append(executor.submit(self._worker_pagamentos))
                 
                 for future in concurrent.futures.as_completed(futures):
                     if self.stop_event.is_set(): break
-                    sem = futures[future]
-                    try:
-                        future.result()
-                    except Exception as e:
-                        self.log(f"❌ [ERRO] Falha em {sem['label']}: {e}", "red")
+                    try: future.result()
+                    except Exception as e: self.log(f"❌ [ERRO] Falha em thread: {e}", "red")
 
             if self.stop_event.is_set():
                 self.is_running = False
                 return
 
-            # --- FASE 2: CONSOLIDAÇÃO (80% -> 100%) ---
-            self.progress = 80 
-            self.log("📦 [SISTEMA] Consolidando dados baixados...", "#FFCE54")
+            self.log("📦 [SISTEMA] Iniciando consolidação e cruzamento de dados...", "#FFCE54")
+            sucesso = self.consolidar_contratos_e_pendencias_com_correcao()
             
-            sucesso = self._gerar_relatorio_final_formatado()
-            
+            if sucesso:
+                self.log("🗜️ [SISTEMA] Compactando relatórios finais em formato ZIP...", "cyan")
+                self.update_progress(4)
+                with zipfile.ZipFile(ARQUIVO_ZIP_FINAL, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                    if os.path.exists(ARQUIVO_SAIDA_CONTRATOS):
+                        zipf.write(ARQUIVO_SAIDA_CONTRATOS, os.path.basename(ARQUIVO_SAIDA_CONTRATOS))
+                    if os.path.exists(ARQUIVO_DIVERGENCIAS):
+                        zipf.write(ARQUIVO_DIVERGENCIAS, os.path.basename(ARQUIVO_DIVERGENCIAS))
+                
+                self.arquivo_gerado = ARQUIVO_ZIP_FINAL
+
+            self._limpar_temporarios()
+
             elapsed = time.time() - self.start_time
             tempo_fmt = str(datetime.timedelta(seconds=int(elapsed)))
 
             if sucesso:
                 self.progress = 100
                 self.status_final = "success"
-                self.arquivo_gerado = ARQUIVO_SAIDA
-                self.log(f"🏆 [SUCESSO] Processo finalizado em {tempo_fmt}", "#A0D468")
+                self.log(f"🏆 [SUCESSO] Processo finalizado com maestria em {tempo_fmt}", "#A0D468")
             else:
                 self.status_final = "error"
                 self.log("❌ [ERRO] Falha na geração do relatório final.", "red")
@@ -164,445 +206,674 @@ class AutomacaoContratos:
             self.is_running = False
             with self.lock:
                 for driver in self.active_drivers:
-                    try: driver.quit()
-                    except: pass
+                    matar_driver_forca_bruta(driver)
                 self.active_drivers = []
 
-    def _baixar_semestre_safe(self, semestre, index):
-        MAX_RETRIES = 3
-        nome = semestre['label']
-        
-        delay = index * 1.5
-        if delay > 0:
-            time.sleep(delay)
+    # =========================================================================
+    # WORKERS DE EXTRAÇÃO
+    # =========================================================================
 
-        for i in range(1, MAX_RETRIES + 1):
-            if self.stop_event.is_set(): return
+    def _worker_contratos_retry(self, dados_semestre):
+        nome = dados_semestre['label']
+        for tentativa in range(1, self.MAX_TENTATIVAS + 1):
+            if self.stop_event.is_set(): break
             try:
-                self.log(f"▶️ [{nome}] Iniciando download...", "cyan")
-                self._selenium_download(semestre)
-                self.log(f"✅ [{nome}] Arquivo baixado com sucesso!", "#A0D468")
-                return
+                if tentativa == 1:
+                    self.log(f"▶️ [{nome}] Acessando portal e aplicando filtros...", "cyan")
+                else:
+                    self.log(f"▶️ [{nome}] Tentativa {tentativa}: Reiniciando extração...", "yellow")
+                
+                sucesso = self._contratos_navegador(dados_semestre)
+                if sucesso:
+                    self.log(f"✅ [{nome}] Planilha salva com sucesso!", "#A0D468")
+                    self.update_progress(5) 
+                    return True
             except Exception as e:
-                if self.stop_event.is_set(): return
-                self.log(f"⚠️ [{nome}] Tentativa falhou: {str(e)[:50]}...", "yellow")
-                if i == MAX_RETRIES: 
-                    self.log(f"❌ [{nome}] Limite de tentativas excedido.", "red")
-                    raise e
-                time.sleep(5)
+                if tentativa < self.MAX_TENTATIVAS and not self.stop_event.is_set():
+                    time.sleep(3)
+                else:
+                    self.log(f"❌ [{nome}] Falha crítica de extração.", "red")
+                    return False
 
-    def _executor_clique(self, driver, elemento):
-        driver.execute_script("arguments[0].click();", elemento)
-
-    def _selenium_download(self, semestre):
-        STEP_VAL = 3 
+    def _contratos_navegador(self, dados_semestre):
+        if self.stop_event.is_set(): return False
         
-        pasta_temp = os.path.join(DIR_EXPORTS, f"temp_{semestre['label']}")
-        if os.path.exists(pasta_temp): shutil.rmtree(pasta_temp)
-        os.makedirs(pasta_temp)
+        nome_semestre = dados_semestre['label']
+        valor_semestre = dados_semestre['value']
+        
+        pasta_temp = os.path.join(DIR_EXPORTS, f"temp_{nome_semestre}")
+        if not os.path.exists(pasta_temp): os.makedirs(pasta_temp, exist_ok=True)
+        for f in os.listdir(pasta_temp):
+            try: os.remove(os.path.join(pasta_temp, f))
+            except: pass
 
-        user_data_dir = tempfile.mkdtemp()
+        options = webdriver.ChromeOptions()
+        options.add_argument("--headless=new") 
+        options.add_argument("--window-size=1920,1080")
+        options.add_argument('--ignore-certificate-errors')
+        options.add_argument('--unsafely-treat-insecure-origin-as-secure=http://10.237.1.11')
+        options.add_argument("--disable-blink-features=AutomationControlled") 
+        options.add_argument("--log-level=3")
 
-        # PREFS ANTI-BLOQUEIO
         prefs = {
-            "download.default_directory": pasta_temp,
-            "download.prompt_for_download": False,
-            "download.directory_upgrade": True,
-            "safebrowsing.enabled": True, 
-            "safebrowsing.disable_download_protection": True,
-            "profile.default_content_setting_values.automatic_downloads": 1,
-            "credentials_enable_service": False,
+            "download.default_directory": pasta_temp, 
+            "download.prompt_for_download": False, 
+            "profile.default_content_setting_values.automatic_downloads": 1, 
+            "credentials_enable_service": False, 
             "profile.password_manager_enabled": False
         }
+        options.add_experimental_option("prefs", prefs)
 
-        opts = webdriver.ChromeOptions()
-        opts.add_argument("--headless=new") 
-        opts.add_argument("--window-size=1920,1080")
-        opts.add_argument('--ignore-certificate-errors')
-        opts.add_argument('--unsafely-treat-insecure-origin-as-secure=http://10.237.1.11')
-        opts.add_argument("--disable-blink-features=AutomationControlled")
-        opts.add_argument("--log-level=3")
+        service = Service(ChromeDriverManager().install())
+        driver = webdriver.Chrome(service=service, options=options)
         
-        if platform.system() == "Linux":
-            opts.binary_location = "/usr/bin/google-chrome"
-            opts.add_argument("--no-sandbox")
-            opts.add_argument("--disable-dev-shm-usage")
-            opts.add_argument("--disable-gpu")
-            opts.add_argument("--disable-software-rasterizer")
-            opts.add_argument("--disable-extensions")
-            opts.add_argument("--remote-debugging-port=0") 
+        with self.lock:
+            self.active_drivers.append(driver)
 
-        opts.add_argument(f"--user-data-dir={user_data_dir}")
-        opts.add_experimental_option("prefs", prefs)
+        wait = WebDriverWait(driver, 180)
 
-        driver = None
         try:
-            service = Service(ChromeDriverManager().install())
-            driver = webdriver.Chrome(service=service, options=opts)
-            driver.set_page_load_timeout(180)
+            if self.stop_event.is_set(): raise Exception("Cancelado")
+            driver.get("http://10.237.1.11/pbu")
             
-            with self.lock:
-                self.active_drivers.append(driver)
-
-            wait = WebDriverWait(driver, 180)
-            
-            # 1. ACESSO
-            try: driver.get("http://10.237.1.11/pbu")
-            except: 
-                time.sleep(2)
-                driver.get("http://10.237.1.11/pbu")
-            self.update_progress(STEP_VAL)
-            
-            # 2. LOGIN
-            self._check_stop()
             wait.until(EC.visibility_of_element_located((By.CSS_SELECTOR, "#id_sc_field_login"))).send_keys("ihan.santos")
             wait.until(EC.visibility_of_element_located((By.CSS_SELECTOR, "input[type='password']"))).send_keys("M@vis-08")
-            btn_login = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "#login1 > form > div.submit > input")))
-            self._executor_clique(driver, btn_login)
-            self.update_progress(STEP_VAL)
+            wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "#login1 > form > div.submit > input"))).click()
+            self.update_progress(2)
             
-            # 3. MENU
-            self._check_stop()
-            btn_menu1 = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "#item_163")))
-            self._executor_clique(driver, btn_menu1)
-            time.sleep(0.5)
-            btn_menu2 = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "#item_165")))
-            self._executor_clique(driver, btn_menu2)
+            if self.stop_event.is_set(): raise Exception("Cancelado")
+            wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "#item_163"))).click()
+            wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "#item_165"))).click()
+            ActionChains(driver).move_by_offset(0, 0).perform()
+
+            nome_iframe_aba = "menu_item_165_iframe"
+            wait.until(EC.frame_to_be_available_and_switch_to_it((By.NAME, nome_iframe_aba)))
+
+            if self.stop_event.is_set(): raise Exception("Cancelado")
+            el_drop = wait.until(EC.visibility_of_element_located((By.CSS_SELECTOR, "#SC_semestre")))
+            selecao = Select(el_drop)
+            try: selecao.select_by_value(valor_semestre)
+            except: selecao.select_by_visible_text(nome_semestre)
+
+            wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "#sc_b_pesq_bot"))).click()
+            expand = "#div_int_documento_tipo .dn-expand-button"
+            wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, expand))).click()
+            time.sleep(1)
             
-            wait.until(EC.frame_to_be_available_and_switch_to_it((By.NAME, "menu_item_165_iframe")))
-            
-            # 4. FILTRO
-            self._check_stop()
-            el_select = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "#SC_semestre")))
-            sel = Select(el_select)
-            try: sel.select_by_value(semestre['value'])
-            except: sel.select_by_visible_text(semestre['label'])
-            
-            btn_pesq = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "#sc_b_pesq_bot")))
-            self._executor_clique(driver, btn_pesq)
-            self.update_progress(STEP_VAL)
-            time.sleep(2)
-            
-            # 5. DOCUMENTO
-            self._check_stop()
-            self.log(f"📄 [{semestre['label']}] Solicitando geração do relatório...", "gray")
-            try:
-                btn_expand = driver.find_element(By.CSS_SELECTOR, "#div_int_documento_tipo .dn-expand-button")
-                self._executor_clique(driver, btn_expand)
-                time.sleep(0.5)
-            except: pass
-            
-            lbl_contrato = wait.until(EC.presence_of_element_located((By.XPATH, "//label[contains(text(), 'CONTRATO DE PRESTAÇÃO')]")))
-            self._executor_clique(driver, lbl_contrato)
-            self.update_progress(STEP_VAL)
-            
+            txt_alvo = "CONTRATO DE PRESTAÇÃO DE SERVIÇOS EDUCACIONAIS"
+            xp_opt = f"//div[@id='id_tab_documento_tipo_link']//label[contains(text(), '{txt_alvo}')]"
+            wait.until(EC.element_to_be_clickable((By.XPATH, xp_opt))).click()
+
             try:
                 wait.until(EC.invisibility_of_element_located((By.CSS_SELECTOR, ".blockUI.blockOverlay")))
+                time.sleep(0.5) 
             except: pass
-            time.sleep(1)
 
-            # 6. EXPORTAR
-            self._check_stop()
-            btn_grp = wait.until(EC.presence_of_element_located((By.ID, "sc_btgp_btn_group_1_top")))
-            self._executor_clique(driver, btn_grp)
-            
-            btn_xls = wait.until(EC.presence_of_element_located((By.ID, "xls_top")))
-            self._executor_clique(driver, btn_xls)
-            self.update_progress(STEP_VAL)
-            
+            self.log(f"⚙️ [{nome_semestre}] Sistema gerando relatório. Aguardando liberação...", "gray")
+            self.update_progress(2)
+
+            if self.stop_event.is_set(): raise Exception("Cancelado")
+            wait.until(EC.element_to_be_clickable((By.ID, "sc_btgp_btn_group_1_top"))).click()
+            wait.until(EC.element_to_be_clickable((By.ID, "xls_top"))).click()
+
             wait.until(EC.frame_to_be_available_and_switch_to_it((By.ID, "TB_iframeContent")))
-            btn_ok = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "#bok")))
-            self._executor_clique(driver, btn_ok)
+            wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "#bok"))).click()
 
-            # 7. DOWNLOAD WAIT
-            self.log(f"⬇️ [{semestre['label']}] Transferindo arquivo...", "cyan")
             inicio = time.time()
-            clicado = False
-            
-            while time.time() - inicio < 300:
-                self._check_stop()
+            btn_baixar = None
+            while (time.time() - inicio) < 300:
+                if self.stop_event.is_set(): raise Exception("Cancelado")
                 try:
                     driver.switch_to.default_content()
-                    try: driver.switch_to.frame("menu_item_165_iframe")
+                    try: driver.switch_to.frame(nome_iframe_aba)
                     except: pass
                     try: driver.switch_to.frame("TB_iframeContent")
                     except: pass
-                    
-                    btns = driver.find_elements(By.XPATH, "//*[@id='idBtnDown'] | //a[contains(., 'Baixar')]")
-                    if btns:
-                        self._executor_clique(driver, btns[0])
-                        clicado = True
-                        self.update_progress(STEP_VAL)
+
+                    els = driver.find_elements(By.XPATH, "//*[@id='idBtnDown'] | //a[contains(., 'Baixar')]")
+                    if els and els[0].is_displayed():
+                        btn_baixar = els[0]
                         break
-                except: pass
-                time.sleep(2)
-            
-            if not clicado: raise Exception("Botão de download não apareceu (5 min).")
-
-            # 8. VALIDAÇÃO INTELIGENTE
-            tempo_espera = 0
-            while tempo_espera < 240:
-                self._check_stop()
-                if not os.path.exists(pasta_temp): 
-                    time.sleep(1); tempo_espera +=1; continue
-
-                arquivos = os.listdir(pasta_temp)
-                
-                # Ignora temporários
-                if any(f.endswith('.crdownload') or f.endswith('.tmp') for f in arquivos):
                     time.sleep(1)
-                    tempo_espera += 1
-                    continue
+                except: time.sleep(1)
+
+            if not btn_baixar: raise Exception("Botão de baixar não apareceu no tempo limite.")
+
+            with self.download_lock:
+                self.log(f"⬇️ [{nome_semestre}] Transferindo arquivo para a máquina (Download Exclusivo)...", "cyan")
+                self.update_progress(3)
+                driver.execute_script("arguments[0].click();", btn_baixar)
                 
-                finais = [f for f in arquivos if f.endswith('.xlsx') or f.endswith('.xls')]
-                if finais:
+                arquivo_encontrado = None
+                for _ in range(240):
+                    if self.stop_event.is_set(): break 
+
+                    if not os.path.exists(pasta_temp): break
+                    arquivos = os.listdir(pasta_temp)
+                    validos = [f for f in arquivos if not f.endswith('.crdownload') and not f.endswith('.tmp')]
+                    if validos:
+                        arquivo_encontrado = os.path.join(pasta_temp, validos[0])
+                        break
                     time.sleep(1)
-                    shutil.move(os.path.join(pasta_temp, finais[0]), os.path.join(DIR_EXPORTS, f"export_{semestre['label']}.xlsx"))
-                    shutil.rmtree(pasta_temp)
-                    self.update_progress(5) # Bônus de conclusão
+
+                if arquivo_encontrado:
+                    nome_final = f"export_{nome_semestre}.xlsx"
+                    caminho_final = os.path.join(DIR_EXPORTS, nome_final)
+                    if os.path.exists(caminho_final): os.remove(caminho_final)
+                    shutil.move(arquivo_encontrado, caminho_final)
+                    shutil.rmtree(pasta_temp, ignore_errors=True)
+                    self.update_progress(3)
                     return True
-                
-                time.sleep(1)
-                tempo_espera += 1
-            
-            raise Exception("Timeout: Arquivo travou no download.")
+                else:
+                    raise Exception("Download travou no status .crdownload.")
 
         except Exception as e:
             raise e
         finally:
-            if driver:
+            with self.lock:
+                if driver in self.active_drivers:
+                    self.active_drivers.remove(driver)
+            matar_driver_forca_bruta(driver)
+
+
+    def _worker_pagamentos(self):
+        driver = None
+        try:
+            if self.stop_event.is_set(): return
+            self.log("▶️ [Base Auxiliar] Acessando sistema financeiro...", "cyan")
+            self.update_progress(2)
+            
+            ua = UserAgent()
+            agente = ua.chrome
+            opcoes = webdriver.ChromeOptions()
+            opcoes.add_argument(f"user-agent={agente}")
+            opcoes.add_argument("--headless=new") 
+            opcoes.add_argument("--window-size=1920,1080")
+            opcoes.add_argument('--ignore-certificate-errors')
+            opcoes.add_argument('--unsafely-treat-insecure-origin-as-secure=http://10.237.1.11')
+            opcoes.add_argument("--disable-blink-features=AutomationControlled") 
+            opcoes.add_experimental_option("excludeSwitches", ["enable-automation"])
+
+            if not os.path.exists(PASTA_TEMP_PAGAMENTOS): os.makedirs(PASTA_TEMP_PAGAMENTOS, exist_ok=True)
+            prefs = {"download.default_directory": PASTA_TEMP_PAGAMENTOS, "download.prompt_for_download": False, "directory_upgrade": True}
+            opcoes.add_experimental_option("prefs", prefs)
+
+            service = Service(ChromeDriverManager().install())
+            driver = webdriver.Chrome(service=service, options=opcoes)
+            
+            with self.lock:
+                self.active_drivers.append(driver)
+            
+            driver.get("http://10.237.1.11/bolsa/")
+            main_window = driver.current_window_handle 
+
+            WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.XPATH, '//*[@id="usuario"]'))).send_keys("ihan.santos")
+            WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.XPATH, '//*[@id="senha"]'))).send_keys("Mavis08")
+            WebDriverWait(driver, 10).until(EC.element_to_be_clickable((By.XPATH, '//*[@id="conteudo"]/form/fieldset/p[3]/input'))).click()
+
+            if self.stop_event.is_set(): return
+
+            financeiro = '//*[@id="cssmenu"]/ul/li[4]/a/span' 
+            ActionChains(driver).move_to_element(WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.XPATH, financeiro)))).perform()
+            fin_gestao = '//*[@id="cssmenu"]/ul/li[4]/ul/li[1]/a' 
+            WebDriverWait(driver, 10).until(EC.element_to_be_clickable((By.XPATH, fin_gestao))).click()
+            fin_rel = '//*[@id="cssmenu"]/ul/li[1]/a/span' 
+            ActionChains(driver).move_to_element(WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.XPATH, fin_rel)))).perform()
+            rel_pgto = '//*[@id="cssmenu"]/ul/li[1]/ul/li[2]/a'        
+            WebDriverWait(driver, 10).until(EC.element_to_be_clickable((By.XPATH, rel_pgto))).click()
+            
+            anos = ['2025', '2026'] 
+            for ano in anos:       
+                f_path = os.path.join(DIR_RELATORIO_PAGAMENTOS, ano)
+                if not os.path.exists(f_path): os.makedirs(f_path, exist_ok=True)
+            
+            hoje = datetime.datetime.now()
+            ano_atual = hoje.year
+            mes_atual = hoje.month
+
+            for ano in anos:
+                if self.stop_event.is_set(): break
+                ano_int = int(ano)
+                if ano_int > ano_atual: continue
+                f_path = os.path.join(DIR_RELATORIO_PAGAMENTOS, ano)
+
+                self.log(f"⚙️ [Base Auxiliar] Processando e baixando pacotes de {ano}...", "gray")
+                
+                for m in range(1, 13):
+                    if self.stop_event.is_set(): break
+                    if ano_int == ano_atual and m >= mes_atual: break 
+
+                    mes_valor = str(m).zfill(2)
+                    self.update_progress(0.4)
+                    
+                    xpath_ano = f'//*[@id="ano"]/option[text()="{ano}"]'
+                    WebDriverWait(driver, 5).until(EC.element_to_be_clickable((By.XPATH, xpath_ano))).click()
+                    WebDriverWait(driver, 5).until(EC.element_to_be_clickable((By.XPATH, '//*[@id="formato"]/option[2]'))).click()
+                    xpath_mes = f'//*[@id="mes"]/option[@value="{mes_valor}"]'
+                    WebDriverWait(driver, 5).until(EC.element_to_be_clickable((By.XPATH, xpath_mes))).click()
+                    WebDriverWait(driver, 5).until(EC.element_to_be_clickable((By.XPATH, '/html/body/form/fieldset/p[4]/input'))).click()
+                    
+                    time.sleep(1) 
+                    if len(driver.window_handles) > 1:
+                        for handle in driver.window_handles:
+                            if handle != main_window:
+                                driver.switch_to.window(handle)
+                                driver.close()
+                        driver.switch_to.window(main_window)
+
+                    try:
+                        arquivo_encontrado = WebDriverWait(driver, 15).until(lambda d: [f for f in os.listdir(PASTA_TEMP_PAGAMENTOS) if not f.endswith('.crdownload')])
+                        if arquivo_encontrado:
+                            nome_arq = arquivo_encontrado[0]
+                            origem = os.path.join(PASTA_TEMP_PAGAMENTOS, nome_arq)
+                            novo_nome = f"relatorio_{mes_valor}_{ano}.xls"
+                            destino = os.path.join(f_path, novo_nome)
+                            if os.path.exists(destino): os.remove(destino)
+                            shutil.move(origem, destino)
+                            for f in os.listdir(PASTA_TEMP_PAGAMENTOS):
+                                try: os.remove(os.path.join(PASTA_TEMP_PAGAMENTOS, f))
+                                except: pass
+                    except: pass 
+            
+            if self.stop_event.is_set(): return
+            
+            with self.lock:
+                if driver in self.active_drivers:
+                    self.active_drivers.remove(driver)
+            matar_driver_forca_bruta(driver)
+            driver = None
+
+            self.log("📋 [Base Auxiliar] Consolidando meses em um arquivo único...", "#FFCE54")
+            caminho_consolidada = os.path.join(DIR_RELATORIO_PAGAMENTOS, "consolidada")
+            if not os.path.exists(caminho_consolidada): os.makedirs(caminho_consolidada, exist_ok=True)
+            
+            lista_dfs = []
+            arquivos_totais = []
+            for ano in anos:
+                c_ano = os.path.join(DIR_RELATORIO_PAGAMENTOS, ano)
+                if os.path.exists(c_ano):
+                    arquivos_totais.extend([os.path.join(c_ano, f) for f in os.listdir(c_ano) if f.endswith('.xls')])
+            
+            for full_p in arquivos_totais:
+                if self.stop_event.is_set(): break
+                self.update_progress(0.2)
+                try:
+                    df_temp = None
+                    try: df_temp = pd.read_excel(full_p)
+                    except:
+                        try: 
+                            dfs_html = pd.read_html(full_p, decimal=',', thousands='.', header=0)
+                            if dfs_html: df_temp = dfs_html[0]
+                        except: pass
+                    
+                    if df_temp is not None:
+                        if 'UNI_CPF' in df_temp.columns: df_temp['UNI_CPF'] = df_temp['UNI_CPF'].astype(str).str.replace('*', '', regex=False)
+                        if 'DATA_LANCAMENTO' in df_temp.columns:
+                            try:
+                                df_temp['DT'] = pd.to_datetime(df_temp['DATA_LANCAMENTO'], dayfirst=True, errors='coerce')
+                                df_temp['SEMESTRE'] = df_temp['DT'].apply(lambda x: "" if pd.isnull(x) else f"{x.year}/{'1' if x.month <= 6 else '2'}")
+                                df_temp.drop(columns=['DT'], inplace=True)
+                            except: pass
+                        lista_dfs.append(df_temp)
+                except: pass
+            
+            if lista_dfs and not self.stop_event.is_set():
+                df_u = pd.concat(lista_dfs, ignore_index=True)
+                if 'UNI_CPF' in df_u.columns and 'TIPO_BOLSA' in df_u.columns:
+                    try:
+                        contagem = df_u.groupby('UNI_CPF')['TIPO_BOLSA'].nunique()
+                        trocou = contagem[contagem > 1].index
+                        df_u['TROCOU_BOLSA'] = df_u['UNI_CPF'].apply(lambda x: 'SIM' if x in trocou else 'NÃO')
+                    except: pass
+                
+                if 'INS_NOME' in df_u.columns:
+                    df_u['INS_NOME'] = df_u['INS_NOME'].apply(padronizar_texto)
+
+                with pd.ExcelWriter(ARQUIVO_PAGAMENTOS_CONSOLIDADO, engine='openpyxl') as writer:
+                    df_u.to_excel(writer, sheet_name='rel_pagamentos', index=False)
+                
+                self.update_progress(1.6)
+                self.log("✅ [Base Auxiliar] Relatórios financeiros processados.", "#A0D468")
+
+        except Exception as e:
+            pass
+        finally:
+            if driver: 
                 with self.lock:
                     if driver in self.active_drivers:
                         self.active_drivers.remove(driver)
-                try: driver.quit()
+                matar_driver_forca_bruta(driver)
+            if os.path.exists(PASTA_TEMP_PAGAMENTOS): 
+                try: shutil.rmtree(PASTA_TEMP_PAGAMENTOS, ignore_errors=True)
                 except: pass
-            try: shutil.rmtree(user_data_dir, ignore_errors=True)
+
+
+    # =========================================================================
+    # LÓGICA DE CONSOLIDAÇÃO PRINCIPAL E FORMATAÇÃO DE ARQUIVOS
+    # =========================================================================
+
+    def consolidar_contratos_e_pendencias_com_correcao(self):
+        if self.stop_event.is_set(): return False
+        
+        self.log("📂 [MERGE] Lendo planilhas de contratos recém exportadas...", "cyan")
+        padrao = os.path.join(DIR_EXPORTS, "export_*.xlsx")
+        arquivos_excel = glob.glob(padrao)
+        arquivos_excel.sort() 
+
+        if not arquivos_excel:
+            return False
+            
+        lista_dfs = []
+        for arquivo in arquivos_excel:
+            try:
+                df_temp = pd.read_excel(arquivo, dtype=str)
+                nome_arq = os.path.basename(arquivo)
+                semestre = nome_arq.replace("export_", "").replace(".xlsx", "").replace("-", "/") 
+                if "Semestre" in df_temp.columns: df_temp.drop(columns=["Semestre"], inplace=True)
+                df_temp.insert(0, "Semestre", semestre)
+                if 'Inscrição' in df_temp.columns: df_temp['Inscrição'] = df_temp['Inscrição'].str.replace('.', '', regex=False).str.strip()
+                lista_dfs.append(df_temp)
             except: pass
 
-    def _check_stop(self):
-        if self.stop_event.is_set():
-            raise Exception("Interrompido pelo usuário")
+        self.update_progress(4)
 
-    def _gerar_relatorio_final_formatado(self):
+        if not lista_dfs: return False
+        
+        df_contratos = pd.concat(lista_dfs, ignore_index=True)
+        colunas_numericas = ['Inscrição', 'CPF', 'Gemini CPF']
+        for col in colunas_numericas:
+            if col in df_contratos.columns: df_contratos[col] = df_contratos[col].apply(converter_para_numero_real).astype('Int64')
+
+        if 'Data Processamento' in df_contratos.columns:
+            df_contratos['Data Processamento'] = pd.to_datetime(df_contratos['Data Processamento'], dayfirst=True, errors='coerce').dt.strftime('%d/%m/%Y').fillna('')
+
+        self.log("🔗 [SQL] Buscando dados no banco estritamente dos alunos baixados...", "cyan")
+        
+        DB_HOST, DB_USER, DB_PASS, DB_NAME = "10.237.1.16", "bi_ovg", "bi_ovg@#$124as65", "sibu"
+        df_sql = pd.DataFrame()
+        inscricoes_unicas = df_contratos['Inscrição'].dropna().astype(str).unique().tolist()
+        
         try:
-            self.log("🔗 [BANCO] Conectando ao SIBU (Oracle/MySQL)...", "cyan")
-            self.update_progress(3)
-            
-            DB_USER, DB_PASS = "bi_ovg", quote_plus("bi_ovg@#$124as65")
-            connection_string = f"mysql+mysqlconnector://{DB_USER}:{DB_PASS}@10.237.1.16/sibu"
-            eng = create_engine(connection_string)
-            
-            df_sql = pd.read_sql("SELECT * FROM sibu.PY_financeiro_calculado_semestre_IM", eng)
-            
-            # --- LIMPEZA INICIAL SQL ---
-            if not df_sql.empty:
-                # Remove pontos e espaços, mas mantém como string por enquanto
+            if inscricoes_unicas:
+                ids_formatados = ",".join(inscricoes_unicas)
+                query_otimizada = f"SELECT * FROM sibu.PY_financeiro_calculado_semestre_IM WHERE uni_codigo IN ({ids_formatados})"
+                
+                db_engine = create_engine(f'mysql+mysqlconnector://{DB_USER}:{quote_plus(DB_PASS)}@{DB_HOST}/{DB_NAME}')
+                df_sql = pd.read_sql(query_otimizada, db_engine)
+                
                 df_sql['uni_codigo'] = df_sql['uni_codigo'].astype(str).str.replace('.', '', regex=False).str.strip()
                 df_sql['semestre'] = df_sql['semestre'].astype(str).str.strip()
-                df_sql = self._normalizar_semestres_faltantes_sql(df_sql)
-
-            self.log("📂 [ARQUIVOS] Lendo planilhas exportadas...", "cyan")
-            dfs = []
-            files = glob.glob(os.path.join(DIR_EXPORTS, "export_*.xlsx"))
-            files.sort()
-            
-            if not files:
-                self.log("⚠️ [AVISO] Nenhum arquivo encontrado para processar.", "yellow")
-                return False
-
-            for f in files:
-                sem = os.path.basename(f).replace("export_","").replace(".xlsx","").replace("-","/")
-                try:
-                    # Lê tudo como string inicialmente para preservar dados
-                    d = pd.read_excel(f, dtype=str)
-                    
-                    if "Semestre" in d.columns: d.drop(columns=["Semestre"], inplace=True)
-                    d.insert(0, "Semestre", sem)
-                    
-                    if 'Inscrição' in d.columns:
-                        d['Inscrição'] = d['Inscrição'].str.replace('.','', regex=False).str.strip()
-                        
-                    dfs.append(d)
-                except Exception as ex:
-                    self.log(f"❌ [ERRO] Falha ao ler {sem}: {ex}", "red")
-
-            if not dfs: return False
-            
-            df_final = pd.concat(dfs, ignore_index=True)
-            self.update_progress(3)
-            
-            # =========================================================================
-            # CORREÇÃO BLINDADA DE TIPOS (Elimina erro verde do Excel)
-            # =========================================================================
-            def converter_para_numero_real(valor):
-                """Converte string suja para número inteiro (Int64) ou NaN"""
-                if pd.isna(valor): return pd.NA
-                s = str(valor).strip()
-                if not s: return pd.NA
-                s = s.split('.')[0] # Remove decimal se houver
-                s = ''.join(filter(str.isdigit, s)) # Mantém só dígitos
-                if not s: return pd.NA
-                return int(s)
-
-            # 1. Converter colunas chave para NÚMERO REAL
-            colunas_numericas = ['Inscrição', 'CPF', 'Gemini CPF']
-            for col in colunas_numericas:
-                if col in df_final.columns:
-                    df_final[col] = df_final[col].apply(converter_para_numero_real).astype('Int64')
-
-            # 2. Conversão de DATA para STRING (DD/MM/YYYY)
-            # Convertemos para TEXTO puro para garantir que o Excel não invente formato americano
-            if 'Data Processamento' in df_final.columns:
-                 # Primeiro garante que é datetime para poder formatar
-                 df_final['Data Processamento'] = pd.to_datetime(df_final['Data Processamento'], errors='coerce')
-                 # Converte para String formatada
-                 df_final['Data Processamento'] = df_final['Data Processamento'].dt.strftime('%d/%m/%Y').fillna('')
-
-            self.log("🔄 [DADOS] Cruzando informações (SQL x Excel)...", "cyan")
-            
-            # 3. Converter SQL para número também para o merge funcionar
-            if not df_sql.empty:
+                df_sql = self._contratos_normalizar_sql(df_sql)
                 df_sql['uni_codigo'] = df_sql['uni_codigo'].apply(converter_para_numero_real).astype('Int64')
-                
-                # Merge usando chaves numéricas
-                df_final = pd.merge(df_final, df_sql, left_on=['Inscrição','Semestre'], right_on=['uni_codigo','semestre'], how='left')
-                df_final.drop(columns=['uni_codigo'], errors='ignore', inplace=True)
+        except Exception as e:
+            pass
+        
+        self.update_progress(8)
+        
+        self.log("🔄 [MERGE] Cruzando dados das inscrições...", "cyan")
+        if not df_sql.empty:
+            df_contratos = pd.merge(df_contratos, df_sql, left_on=['Inscrição', 'Semestre'], right_on=['uni_codigo', 'semestre'], how='left')
+            df_contratos.drop(columns=['uni_codigo'], errors='ignore', inplace=True)
+            df_contratos.sort_values(by=['Inscrição', 'Semestre'], ascending=[True, True], inplace=True)
             
-            df_final.sort_values(by=['Inscrição', 'Semestre'], ascending=[True, True], inplace=True)
-
-            # Smart Fill (Preenchimento inteligente)
             cols_to_fill = ['tipo_bolsa_final']
             for col in cols_to_fill:
-                if col in df_final.columns:
-                    df_final[col] = df_final[col].replace(['', None, '0', 0, '[NULL]'], np.nan)
-                    df_final[col] = df_final.groupby('Inscrição')[col].transform(lambda x: x.ffill().bfill())
-                    if col == 'tipo_bolsa_final':
-                         df_final[col] = df_final[col].fillna("SEM DADOS")
-
-            df_final['qtd_pagtos'] = df_final['qtd_pagtos'].fillna(0)
-            df_final['valor_ultima_bolsa_paga'] = df_final['valor_ultima_bolsa_paga'].fillna(0.0)
-            if 'tipo_pagto' in df_final.columns:
-                df_final['tipo_pagto'] = df_final['tipo_pagto'].fillna("")
-
-            # Cálculos Financeiros
-            cols_financeiras = ['Mensalidade S/ Desconto', 'Mensalidade C/ Desconto', 'Gemini Mensalidade S/ Desconto', 'Gemini Mensalidade C/ Desconto']
-            for col in cols_financeiras:
-                if col in df_final.columns: df_final[col] = pd.to_numeric(df_final[col], errors='coerce').fillna(0.0)
-                else: df_final[col] = 0.0
-
-            df_final['Dif. s/Desc.'] = df_final['Mensalidade S/ Desconto'] - df_final['Gemini Mensalidade S/ Desconto']
-            df_final['Dif. c/Desc.'] = np.where(df_final['Gemini Mensalidade C/ Desconto'] != 0, df_final['Mensalidade C/ Desconto'] - df_final['Gemini Mensalidade C/ Desconto'], 0)
-
-            if 'Status Gemini' in df_final.columns: df_final.rename(columns={'Status Gemini': 'IA_status'}, inplace=True)
-
-            ordem = ['IA_status', 'Semestre', 'Gemini Semestre', 'Inscrição', 'Bolsista', 'CPF', 'Gemini CPF', 'Gemini Inconsistencias', 
-                     'Faculdade', 'Curso', 
-                     'tipo_bolsa_final', 'tipo_pagto', 
-                     'qtd_pagtos', 'valor_ultima_bolsa_paga', 'Mensalidade S/ Desconto', 'Gemini Mensalidade S/ Desconto', 'Dif. s/Desc.', 
-                     'Mensalidade C/ Desconto', 'Gemini Mensalidade C/ Desconto', 'Dif. c/Desc.', 'Documento Tipo', 'Data Processamento']
+                if col in df_contratos.columns:
+                    df_contratos[col] = df_contratos[col].replace(['', None, '0', 0, '[NULL]'], np.nan)
+                    df_contratos[col] = df_contratos.groupby('Inscrição')[col].transform(lambda x: x.ffill().bfill())
+                    if col == 'tipo_bolsa_final': df_contratos[col] = df_contratos[col].fillna("SEM DADOS")
             
-            colunas_existentes = [c for c in ordem if c in df_final.columns]
-            df_final = df_final[colunas_existentes]
+            df_contratos['qtd_pagtos'] = df_contratos['qtd_pagtos'].fillna(0)
+            df_contratos['valor_ultima_bolsa_paga'] = df_contratos['valor_ultima_bolsa_paga'].fillna(0.0)
+            if 'tipo_pagto' in df_contratos.columns: df_contratos['tipo_pagto'] = df_contratos['tipo_pagto'].fillna("")
 
-            self.log("🎨 [EXCEL] Formatando planilha final...", "cyan")
-            self.update_progress(5)
-            
-            writer = pd.ExcelWriter(ARQUIVO_SAIDA, engine='xlsxwriter')
-            workbook = writer.book
-            
-            # FORMATOS CORRIGIDOS
-            # CPF: Máscara visual de 11 zeros (00000000123)
-            fmt_cpf_mask = workbook.add_format({'num_format': '00000000000'})
-            fmt_numero_puro = workbook.add_format({'num_format': '0'})
-            
-            fmt_texto = workbook.add_format({'num_format': '@'}) 
-            fmt_moeda = workbook.add_format({'num_format': 'R$ #,##0.00'})
-            fmt_inteiro = workbook.add_format({'num_format': '0'})
-            
-            fmt_alerta = workbook.add_format({'bold': True, 'font_color': '#9C0006', 'bg_color': '#FFC7CE'})
-            fmt_valido = workbook.add_format({'bold': True, 'font_color': '#006100', 'bg_color': '#C6EFCE'})
-            fmt_invalido = workbook.add_format({'bold': True, 'font_color': '#9C0006', 'bg_color': '#FFC7CE'})
+        cols_fin = ['Mensalidade S/ Desconto', 'Mensalidade C/ Desconto', 'Gemini Mensalidade S/ Desconto', 'Gemini Mensalidade C/ Desconto']
+        for col in cols_fin:
+            if col in df_contratos.columns: df_contratos[col] = pd.to_numeric(df_contratos[col], errors='coerce').fillna(0.0)
+            else: df_contratos[col] = 0.0
 
-            anos_unicos = sorted(df_final['Semestre'].str.split('/').str[0].unique())
+        df_contratos['Dif. s/Desc.'] = df_contratos['Mensalidade S/ Desconto'] - df_contratos['Gemini Mensalidade S/ Desconto']
+        df_contratos['Dif. c/Desc.'] = np.where(df_contratos['Gemini Mensalidade C/ Desconto'] != 0, df_contratos['Mensalidade C/ Desconto'] - df_contratos['Gemini Mensalidade C/ Desconto'], 0)
+        
+        if 'Status Gemini' in df_contratos.columns: df_contratos.rename(columns={'Status Gemini': 'IA_status'}, inplace=True)
 
-            for ano in anos_unicos:
-                df_aba = df_final[df_final['Semestre'].str.startswith(str(ano))].copy()
-                nome_aba = f"Contratos {ano}"
+        if 'Faculdade' in df_contratos.columns:
+            df_contratos['Faculdade'] = df_contratos['Faculdade'].apply(padronizar_texto)
+
+        self.update_progress(5)
+
+        df_contratos['Mudou IES?'] = "N/A" 
+        df_contratos['IES Anterior'] = "N/A"
+        df_contratos['Mudou Bolsa?'] = "N/A"
+        df_contratos['Bolsa Anterior'] = "N/A"
+
+        ordem = ['IA_status', 'Mudou IES?', 'IES Anterior', 'Mudou Bolsa?', 'Bolsa Anterior', 'Semestre', 'Gemini Semestre', 'Inscrição', 'Bolsista', 'CPF', 'Gemini CPF', 'Gemini Inconsistencias', 
+                    'Faculdade', 'Curso', 'tipo_bolsa_final', 'tipo_pagto', 'qtd_pagtos', 'valor_ultima_bolsa_paga', 
+                    'Mensalidade S/ Desconto', 'Gemini Mensalidade S/ Desconto', 'Dif. s/Desc.', 
+                    'Mensalidade C/ Desconto', 'Gemini Mensalidade C/ Desconto', 'Dif. c/Desc.', 'Documento Tipo', 'Data Processamento']
+        
+        col_exist = [c for c in ordem if c in df_contratos.columns]
+        df_contratos_div = df_contratos[col_exist].copy()
+        
+        df_pendentes = pd.DataFrame(columns=df_contratos.columns)
+        df_pendentes_div = pd.DataFrame(columns=df_contratos_div.columns)
+        
+        self.log("🔬 [ANÁLISE] Identificando mudanças de trajetória escolar dos alunos...", "cyan")
+        
+        if os.path.exists(ARQUIVO_PAGAMENTOS_CONSOLIDADO):
+            df_pag = pd.read_excel(ARQUIVO_PAGAMENTOS_CONSOLIDADO)
+            cols_req_pag = ['UNI_CODIGO', 'UNI_CPF', 'INS_NOME', 'SEMESTRE']
+            
+            if all(c in df_pag.columns for c in cols_req_pag):
+                if 'INS_NOME' in df_pag.columns: df_pag['INS_NOME'] = df_pag['INS_NOME'].apply(padronizar_texto)
+                df_pag.sort_values(by=['UNI_CODIGO', 'SEMESTRE'], inplace=True)
+
+                df_pag['PREV_BOLSA'] = df_pag.groupby('UNI_CODIGO')['TIPO_BOLSA'].shift(1)
+                df_pag['PREV_IES'] = df_pag.groupby('UNI_CODIGO')['INS_NOME'].shift(1)
+
+                def get_flag_mudanca(curr, prev):
+                    if pd.isna(prev): return "NÃO"
+                    return "SIM" if curr != prev else "NÃO"
+
+                def get_prev_value(curr, prev):
+                    if pd.isna(prev): return "-"
+                    return prev if curr != prev else "-"
+
+                df_pag['FLAG_BOLSA'] = df_pag.apply(lambda x: get_flag_mudanca(x['TIPO_BOLSA'], x['PREV_BOLSA']), axis=1)
+                df_pag['ANT_BOLSA'] = df_pag.apply(lambda x: get_prev_value(x['TIPO_BOLSA'], x['PREV_BOLSA']), axis=1)
+                df_pag['FLAG_IES'] = df_pag.apply(lambda x: get_flag_mudanca(x['INS_NOME'], x['PREV_IES']), axis=1)
+                df_pag['ANT_IES'] = df_pag.apply(lambda x: get_prev_value(x['INS_NOME'], x['PREV_IES']), axis=1)
+
+                df_pag['KEY_MAP'] = list(zip(df_pag['UNI_CODIGO'].astype(str), df_pag['SEMESTRE'].astype(str)))
                 
-                # Escreve os números reais no Excel
-                df_aba.to_excel(writer, sheet_name=nome_aba, startrow=1, header=False, index=False)
-                worksheet = writer.sheets[nome_aba]
+                map_flag_bolsa = dict(zip(df_pag['KEY_MAP'], df_pag['FLAG_BOLSA']))
+                map_ant_bolsa = dict(zip(df_pag['KEY_MAP'], df_pag['ANT_BOLSA']))
+                map_flag_ies = dict(zip(df_pag['KEY_MAP'], df_pag['FLAG_IES']))
+                map_ant_ies = dict(zip(df_pag['KEY_MAP'], df_pag['ANT_IES']))
+
+                df_pag['K_ID_DIV'] = df_pag['UNI_CODIGO'].astype(str).str.replace('.', '', regex=False).str.strip()
+                df_pag['K_CPF_DIV'] = df_pag['UNI_CPF'].astype(str).str.replace('.', '', regex=False).str.replace('-', '', regex=False).str.strip().str.zfill(11)
+                df_pag['K_INS_DIV'] = df_pag['INS_NOME'] 
+                df_pag['K_SEM_DIV'] = df_pag['SEMESTRE'].astype(str).str.strip()
+                df_pag['KEY_DIV'] = df_pag['K_ID_DIV'] + "_" + df_pag['K_CPF_DIV'] + "_" + df_pag['K_INS_DIV'] + "_" + df_pag['K_SEM_DIV']
+
+                df_contratos_div['K_ID_DIV'] = df_contratos_div['Inscrição'].astype(str).str.replace('.', '', regex=False).str.strip()
+                df_contratos_div['K_CPF_DIV'] = df_contratos_div['CPF'].astype(str).str.replace('.', '', regex=False).str.replace('-', '', regex=False).str.strip().str.zfill(11)
+                df_contratos_div['K_INS_DIV'] = df_contratos_div['Faculdade'] 
+                df_contratos_div['K_SEM_DIV'] = df_contratos_div['Semestre'].astype(str).str.strip()
+                df_contratos_div['KEY_DIV'] = df_contratos_div['K_ID_DIV'] + "_" + df_contratos_div['K_CPF_DIV'] + "_" + df_contratos_div['K_INS_DIV'] + "_" + df_contratos_div['K_SEM_DIV']
+
+                set_contratos_div = set(df_contratos_div['KEY_DIV'])
+                df_diff_div = df_pag[~df_pag['KEY_DIV'].isin(set_contratos_div)].copy()
                 
-                (max_row, max_col) = df_aba.shape
-                
-                worksheet.add_table(0, 0, max_row, max_col - 1, {
-                    'columns': [{'header': c} for c in df_aba.columns], 
-                    'style': 'Table Style Medium 9', 
-                    'name': f'Tabela_{ano}'
-                })
+                self.update_progress(4)
+                self.log("📝 [ANÁLISE] Estruturando relatórios de pendências e divergências...", "cyan")
 
-                lista_cols_moeda = cols_financeiras + ['Dif. s/Desc.', 'Dif. c/Desc.', 'valor_ultima_bolsa_paga']
-
-                for i, col in enumerate(df_aba.columns):
-                    # LARGURA AUTOMÁTICA SEGURA (Evita 'float has no len')
-                    largura = 15
-                    try:
-                        amostra = df_aba[col].head(20)
-                        if not amostra.empty:
-                            # Converte para string explicitamente antes de medir
-                            max_len = amostra.apply(lambda x: len(str(x)) if pd.notnull(x) else 0).max()
-                            largura = max(max_len, len(str(col))) + 3
-                            largura = min(largura, 60)
-                    except: pass
-
-                    # APLICAÇÃO DOS FORMATOS
-                    if col in lista_cols_moeda: 
-                        worksheet.set_column(i, i, largura, fmt_moeda)
-                    elif 'CPF' in col: 
-                        worksheet.set_column(i, i, 16, fmt_cpf_mask) # Máscara CPF
-                    elif col == 'Inscrição':
-                        worksheet.set_column(i, i, largura, fmt_numero_puro) # Número sem zeros à esquerda
-                    elif col == 'qtd_pagtos': 
-                        worksheet.set_column(i, i, largura, fmt_inteiro)
-                    elif col == 'Data Processamento':
-                        # DATA COMO TEXTO: Garante 27/01/2026 fixo, sem interpretação americana
-                        worksheet.set_column(i, i, 16, fmt_texto)
-                    else: 
-                        worksheet.set_column(i, i, largura) # Geral
-
-                    if col in ['Dif. s/Desc.', 'Dif. c/Desc.']:
-                        worksheet.conditional_format(1, i, max_row, i, {'type': 'cell', 'criteria': '!=', 'value': 0, 'format': fmt_alerta})
+                if not df_diff_div.empty:
+                    df_pendentes_div['Semestre'] = df_diff_div['SEMESTRE']
+                    df_pendentes_div['Inscrição'] = df_diff_div['UNI_CODIGO'].apply(converter_para_numero_real).astype('Int64')
+                    df_pendentes_div['CPF'] = df_diff_div['UNI_CPF'].apply(converter_para_numero_real).astype('Int64')
+                    df_pendentes_div['Faculdade'] = df_diff_div['INS_NOME']
                     
-                    if col == 'IA_status':
-                        worksheet.conditional_format(1, i, max_row, i, {'type': 'text', 'criteria': 'begins with', 'value': 'V', 'format': fmt_valido})
-                        worksheet.conditional_format(1, i, max_row, i, {'type': 'text', 'criteria': 'begins with', 'value': 'I', 'format': fmt_invalido})
+                    df_pendentes_div['Mudou IES?'] = "N/A"
+                    df_pendentes_div['IES Anterior'] = "N/A"
+                    df_pendentes_div['Mudou Bolsa?'] = "N/A"
+                    df_pendentes_div['Bolsa Anterior'] = "N/A"
 
-                # NÃO USAMOS MAIS ignore_errors, pois agora são números legítimos
+                    for col_nome in ['UNI_NOME', 'NOME', 'ALUNO', 'NOME_ALUNO', 'BOLSISTA']:
+                        if col_nome in df_diff_div.columns: df_pendentes_div['Bolsista'] = df_diff_div[col_nome]; break
+                    for col_curso in ['CUR_NOME', 'CURSO', 'NOME_CURSO']:
+                        if col_curso in df_diff_div.columns: df_pendentes_div['Curso'] = df_diff_div[col_curso]; break
+                    if 'TIPO_BOLSA' in df_diff_div.columns: df_pendentes_div['tipo_bolsa_final'] = df_diff_div['TIPO_BOLSA']
+                    
+                    df_pendentes_div['IA_status'] = 'X'
+                    df_pendentes_div['Documento Tipo'] = 'NÃO ENVIOU CONTRATO DE PRESTAÇÃO DE SERVIÇOS EDUCACIONAIS OU COMPROVANTE DE MATRÍCULA'
+                    
+                    df_pendentes_div.drop_duplicates(subset=['Inscrição', 'Semestre', 'Faculdade'], inplace=True)
 
-            writer.close()
-            return True
-            
-        except Exception as e:
-            self.log(f"Erro formatando Excel: {e}", "red")
-            return False
+                df_contratos_div.drop(columns=['K_ID_DIV', 'K_CPF_DIV', 'K_INS_DIV', 'K_SEM_DIV', 'KEY_DIV'], inplace=True, errors='ignore')
 
-    def _normalizar_semestres_faltantes_sql(self, df):
+                df_pag['K_ID'] = df_pag['UNI_CODIGO'].astype(str).str.replace('.', '', regex=False).str.strip()
+                df_pag['K_SEM'] = df_pag['SEMESTRE'].astype(str).str.strip()
+                df_pag_unique = df_pag.drop_duplicates(subset=['K_ID', 'K_SEM'], keep='last')
+                mapa_ies_correcao = dict(zip(zip(df_pag_unique['K_ID'], df_pag_unique['K_SEM']), df_pag_unique['INS_NOME']))
+                
+                def corrigir_ies(row):
+                    chave = (str(row['Inscrição']), str(row['Semestre']))
+                    if chave in mapa_ies_correcao:
+                        nova_ies = padronizar_texto(mapa_ies_correcao[chave])
+                        if nova_ies: return nova_ies
+                    return row['Faculdade']
+
+                df_contratos['Faculdade'] = df_contratos.apply(corrigir_ies, axis=1)
+                
+                def aplicar_flags(row):
+                    chave = (str(row['Inscrição']), str(row['Semestre']))
+                    return pd.Series([
+                        map_flag_ies.get(chave, "NÃO"),
+                        map_ant_ies.get(chave, "-"),
+                        map_flag_bolsa.get(chave, "NÃO"),
+                        map_ant_bolsa.get(chave, "-")
+                    ])
+
+                df_contratos[['Mudou IES?', 'IES Anterior', 'Mudou Bolsa?', 'Bolsa Anterior']] = df_contratos.apply(aplicar_flags, axis=1)
+
+                df_contratos['KEY_EXISTENCIA'] = df_contratos['Inscrição'].astype(str) + "_" + df_contratos['Semestre'].astype(str)
+                contratos_existentes = set(df_contratos['KEY_EXISTENCIA'])
+                
+                df_pag['KEY_EXISTENCIA'] = df_pag['K_ID'] + "_" + df_pag['K_SEM']
+                
+                df_diff = df_pag[~df_pag['KEY_EXISTENCIA'].isin(contratos_existentes)].copy()
+
+                if not df_diff.empty:
+                    df_pendentes['Semestre'] = df_diff['SEMESTRE']
+                    df_pendentes['Inscrição'] = df_diff['UNI_CODIGO'].apply(converter_para_numero_real).astype('Int64')
+                    df_pendentes['CPF'] = df_diff['UNI_CPF'].apply(converter_para_numero_real).astype('Int64')
+                    df_pendentes['Faculdade'] = df_diff['INS_NOME']
+                    
+                    df_pendentes['Mudou IES?'] = df_diff['FLAG_IES']
+                    df_pendentes['IES Anterior'] = df_diff['ANT_IES']
+                    df_pendentes['Mudou Bolsa?'] = df_diff['FLAG_BOLSA']
+                    df_pendentes['Bolsa Anterior'] = df_diff['ANT_BOLSA']
+
+                    for col_nome in ['UNI_NOME', 'NOME', 'ALUNO', 'NOME_ALUNO', 'BOLSISTA']:
+                        if col_nome in df_diff.columns: df_pendentes['Bolsista'] = df_diff[col_nome]; break
+                    for col_curso in ['CUR_NOME', 'CURSO', 'NOME_CURSO']:
+                        if col_curso in df_diff.columns: df_pendentes['Curso'] = df_diff[col_curso]; break
+                    if 'TIPO_BOLSA' in df_diff.columns: df_pendentes['tipo_bolsa_final'] = df_diff['TIPO_BOLSA']
+                    
+                    df_pendentes['IA_status'] = 'X'
+                    df_pendentes['Documento Tipo'] = 'NÃO ENVIOU CONTRATO DE PRESTAÇÃO DE SERVIÇOS EDUCACIONAIS OU COMPROVANTE DE MATRÍCULA'
+                    
+                    df_pendentes.drop_duplicates(subset=['Inscrição', 'Semestre'], inplace=True)
+                
+                df_contratos.drop(columns=['KEY_EXISTENCIA'], inplace=True, errors='ignore')
+
+        self.update_progress(4)
+        self.log("🎨 [EXCEL] Aplicando estilização e salvando planilhas finais...", "cyan")
+        
+        writer_div = pd.ExcelWriter(ARQUIVO_DIVERGENCIAS, engine='xlsxwriter')
+        self._aplicar_estilo_tabela(writer_div, df_contratos_div, "divergencias")
+        if not df_pendentes_div.empty:
+            df_pendentes_div = df_pendentes_div[col_exist] if set(col_exist).issubset(df_pendentes_div.columns) else df_pendentes_div
+            self._aplicar_estilo_tabela(writer_div, df_pendentes_div, "pendencias divergentes")
+        writer_div.close()
+        
+        writer = pd.ExcelWriter(ARQUIVO_SAIDA_CONTRATOS, engine='xlsxwriter')
+        df_contratos = df_contratos[col_exist]
+        self._aplicar_estilo_tabela(writer, df_contratos, "contratos enviados")
+        
+        if not df_pendentes.empty:
+            df_pendentes = df_pendentes[col_exist] if set(col_exist).issubset(df_pendentes.columns) else df_pendentes
+            self._aplicar_estilo_tabela(writer, df_pendentes, "contratos pendentes")
+        
+        writer.close()
+        self.update_progress(6)
+        
+        return True
+
+    def _contratos_normalizar_sql(self, df):
         if df.empty: return df
         df['uni_codigo'] = df['uni_codigo'].astype(str).str.strip()
-        col_id, col_sem = 'uni_codigo', 'semestre'
-        semestres_obrigatorios = ['2025/1', '2025/2']
+        col_id, col_semestre = 'uni_codigo', 'semestre'
+        semestres_obrigatorios = ['2025/1', '2025/2', '2026/1'] 
         
-        alunos = df[col_id].unique()
-        index = pd.MultiIndex.from_product([alunos, semestres_obrigatorios], names=[col_id, col_sem])
+        alunos_unicos = df[col_id].unique()
+        index = pd.MultiIndex.from_product([alunos_unicos, semestres_obrigatorios], names=[col_id, col_semestre])
         df_skeleton = pd.DataFrame(index=index).reset_index()
-        
-        df_merged = pd.merge(df_skeleton, df, on=[col_id, col_sem], how='left')
-        
-        col_copia = ['tipo_bolsa_final']
-        if 'tipo_bolsa_final' in df_merged.columns:
-            df_merged[col_copia] = df_merged.groupby(col_id)[col_copia].ffill().bfill()
-            df_merged['tipo_bolsa_final'] = df_merged['tipo_bolsa_final'].fillna("SEM DADOS")
-        
-        vals_zerar = {'qtd_pagtos': 0, 'valor_ultima_bolsa_paga': 0.0, 'tipo_pagto': ""}
-        df_merged.fillna(vals_zerar, inplace=True)
+        df_merged = pd.merge(df_skeleton, df, on=[col_id, col_semestre], how='left')
+        colunas_para_copiar = ['tipo_bolsa_final'] 
+        df_merged[colunas_para_copiar] = df_merged.groupby(col_id)[colunas_para_copiar].ffill().bfill()
+        valores_para_zerar = {'qtd_pagtos': 0, 'valor_ultima_bolsa_paga': 0.0, 'tipo_pagto': ""}
+        df_merged.fillna(valores_para_zerar, inplace=True)
+        df_merged['tipo_bolsa_final'] = df_merged['tipo_bolsa_final'].fillna("SEM DADOS")
         return df_merged
+
+    def _aplicar_estilo_tabela(self, writer, df, nome_aba):
+        df.to_excel(writer, sheet_name=nome_aba, startrow=1, header=False, index=False)
+        ws = writer.sheets[nome_aba]
+        (mx_r, mx_c) = df.shape
+        
+        ws.add_table(0, 0, mx_r, mx_c - 1, {'columns': [{'header': c} for c in df.columns], 'style': 'Table Style Medium 9', 'name': f'Tab_{nome_aba.replace(" ", "_")}'})
+        
+        workbook = writer.book
+        fmt_cpf_mask = workbook.add_format({'num_format': '00000000000'})
+        fmt_numero_puro = workbook.add_format({'num_format': '0'})
+        fmt_texto = workbook.add_format({'num_format': '@'}) 
+        fmt_moeda = workbook.add_format({'num_format': 'R$ #,##0.00'})
+        fmt_inteiro = workbook.add_format({'num_format': '0'})
+        fmt_alerta = workbook.add_format({'bold': True, 'font_color': '#9C0006', 'bg_color': '#FFC7CE'})
+        fmt_valido = workbook.add_format({'bold': True, 'font_color': '#006100', 'bg_color': '#C6EFCE'})
+        fmt_invalido = workbook.add_format({'bold': True, 'font_color': '#9C0006', 'bg_color': '#FFC7CE'})
+
+        cols_fin = ['Mensalidade S/ Desconto', 'Mensalidade C/ Desconto', 'Gemini Mensalidade S/ Desconto', 'Gemini Mensalidade C/ Desconto', 'Dif. s/Desc.', 'Dif. c/Desc.', 'valor_ultima_bolsa_paga']
+
+        for i, col in enumerate(df.columns):
+            larg = len(str(col))
+            try:
+                amostra = df[col].head(20)
+                if not amostra.empty:
+                    max_len = amostra.apply(lambda x: len(str(x)) if pd.notnull(x) else 0).max()
+                    larg = max(larg, max_len)
+            except: pass
+            larg = min(larg + 2, 60)
+
+            if col in cols_fin: ws.set_column(i, i, larg, fmt_moeda)
+            elif col == 'qtd_pagtos': ws.set_column(i, i, larg, fmt_inteiro)
+            elif 'CPF' in col: ws.set_column(i, i, 16, fmt_cpf_mask)
+            elif col == 'Inscrição': ws.set_column(i, i, larg, fmt_numero_puro)
+            elif col == 'Data Processamento': ws.set_column(i, i, 14, fmt_texto)
+            else: ws.set_column(i, i, larg)
+
+            if col in ['Dif. s/Desc.', 'Dif. c/Desc.']:
+                ws.conditional_format(1, i, mx_r, i, {'type': 'cell', 'criteria': '!=', 'value': 0, 'format': fmt_alerta})
+            if col == 'IA_status':
+                ws.conditional_format(1, i, mx_r, i, {'type': 'text', 'criteria': 'begins with', 'value': 'V', 'format': fmt_valido})
+                ws.conditional_format(1, i, mx_r, i, {'type': 'text', 'criteria': 'begins with', 'value': 'I', 'format': fmt_invalido})
+
+    def _limpar_temporarios(self):
+        try:
+            for pasta in [DIR_EXPORTS, DIR_RELATORIO_PAGAMENTOS, PASTA_TEMP_PAGAMENTOS]:
+                if os.path.exists(pasta):
+                    shutil.rmtree(pasta, ignore_errors=True)
+        except: pass

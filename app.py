@@ -569,4 +569,6 @@ if __name__ == '__main__':
         except:
             pass 
 
-    app.run(host='0.0.0.0', port=PORT, debug=True)
+    # CORREÇÃO: dev_tools_hot_reload=False e use_reloader=False
+    # Isso impede que a criação dos arquivos ZIP e XLSX reiniciem o servidor e recarreguem a página.
+    app.run(host='0.0.0.0', port=PORT, debug=True, dev_tools_hot_reload=False, use_reloader=False)
