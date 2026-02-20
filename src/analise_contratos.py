@@ -701,11 +701,10 @@ class AutomacaoContratos:
             'Mensalidade C/ Desconto', 'Gemini Mensalidade C/ Desconto', 'Dif. c/Desc.', 'Documento Tipo', 'Data Processamento'
         ]
 
-        df_contratos = dict_raw_dfs.get('CONTRATO', pd.DataFrame())
-        df_pendentes = pd.DataFrame()
-
-        self.log("⚙️ [ANÁLISE] Identificando mudanças de trajetória escolar...", "cyan")
+        self.log("⚙️ [ANÁLISE] Identificando mudanças de trajetória escolar e estruturando arquivos...", "cyan")
         self.target_progress = 65
+
+        df_todas_pendencias = []
 
         if os.path.exists(ARQUIVO_PAGAMENTOS_CONSOLIDADO):
             df_pag = pd.read_excel(ARQUIVO_PAGAMENTOS_CONSOLIDADO)
@@ -728,91 +727,121 @@ class AutomacaoContratos:
                 df_pag['K_SEM_DIV'] = df_pag['SEMESTRE'].astype(str).str.strip()
                 df_pag['KEY_DIV'] = df_pag['K_ID_DIV'] + "_" + df_pag['K_CPF_DIV'] + "_" + df_pag['K_INS_DIV'] + "_" + df_pag['K_SEM_DIV']
                 
-                if not df_contratos.empty:
-                    df_contratos_div = df_contratos.copy()
-                    df_contratos_div['K_ID_DIV'] = df_contratos_div['Inscrição'].astype(str).str.replace('.', '', regex=False).str.strip()
-                    df_contratos_div['K_CPF_DIV'] = df_contratos_div['CPF'].astype(str).str.replace('.', '', regex=False).str.replace('-', '', regex=False).str.strip().str.zfill(11)
-                    df_contratos_div['K_INS_DIV'] = df_contratos_div['Faculdade']
-                    df_contratos_div['K_SEM_DIV'] = df_contratos_div['Semestre'].astype(str).str.strip()
-                    df_contratos_div['KEY_DIV'] = df_contratos_div['K_ID_DIV'] + "_" + df_contratos_div['K_CPF_DIV'] + "_" + df_contratos_div['K_INS_DIV'] + "_" + df_contratos_div['K_SEM_DIV']
-                    
-                    set_contratos_div = set(df_contratos_div['KEY_DIV'])
-                    df_diff_div = df_pag[~df_pag['KEY_DIV'].isin(set_contratos_div)].copy()
-                    
-                    self.log("📝 [ANÁLISE] Estruturando relatórios de pendências e divergências...", "cyan")
-                    df_pendentes_div = pd.DataFrame()
-                    if not df_diff_div.empty:
-                        df_pendentes_div['Semestre'] = df_diff_div['SEMESTRE']
-                        df_pendentes_div['Inscrição'] = df_diff_div['UNI_CODIGO'].apply(converter_para_numero_real).astype('Int64')
-                        df_pendentes_div['CPF'] = df_diff_div['UNI_CPF'].apply(converter_para_numero_real).astype('Int64')
-                        df_pendentes_div['Faculdade'] = df_diff_div['INS_NOME']
-                        for col_nome in ['UNI_NOME', 'NOME', 'ALUNO', 'NOME_ALUNO', 'BOLSISTA']:
-                            if col_nome in df_diff_div.columns: df_pendentes_div['Bolsista'] = df_diff_div[col_nome]; break
-                        for col_curso in ['CUR_NOME', 'CURSO', 'NOME_CURSO']:
-                            if col_curso in df_diff_div.columns: df_pendentes_div['Curso'] = df_diff_div[col_curso]; break
-                        df_pendentes_div['IA_status'] = 'X'
-                        df_pendentes_div['Documento Tipo'] = 'CONTRATO PENDENTE'
-                        df_pendentes_div.drop_duplicates(subset=['Inscrição', 'Semestre', 'Faculdade'], inplace=True)
-                    
-                    self.log("🎨 [EXCEL] Aplicando estilização e salvando dados...", "cyan")
-                    writer_div = pd.ExcelWriter(ARQUIVO_DIVERGENCIAS, engine='xlsxwriter')
-                    col_exist_cdiv = [c for c in ordem_base if c in df_contratos_div.columns]
-                    self._aplicar_estilo_tabela(writer_div, df_contratos_div[col_exist_cdiv], "contratos_divergentes")
-                    if not df_pendentes_div.empty:
-                        col_exist_pdiv = [c for c in ordem_base if c in df_pendentes_div.columns]
-                        self._aplicar_estilo_tabela(writer_div, df_pendentes_div[col_exist_pdiv], "pendentes_divergentes")
-                    writer_div.close()
+                df_pag['K_ID'] = df_pag['UNI_CODIGO'].astype(str).str.replace('.', '', regex=False).str.strip()
+                df_pag['K_SEM'] = df_pag['SEMESTRE'].astype(str).str.strip()
+                df_pag['KEY_EXISTENCIA'] = df_pag['K_ID'] + "_" + df_pag['K_SEM']
+                df_pag_unique = df_pag.drop_duplicates(subset=['K_ID', 'K_SEM'], keep='last')
+                mapa_ies_correcao = dict(zip(zip(df_pag_unique['K_ID'], df_pag_unique['K_SEM']), df_pag_unique['INS_NOME']))
+                
+                def corrigir_ies(row):
+                    chave = (str(row['Inscrição']), str(row['Semestre']))
+                    if chave in mapa_ies_correcao:
+                        nova_ies = padronizar_texto(mapa_ies_correcao[chave])
+                        if nova_ies: return nova_ies
+                    return row['Faculdade']
 
-                    df_pag['K_ID'] = df_pag['UNI_CODIGO'].astype(str).str.replace('.', '', regex=False).str.strip()
-                    df_pag['K_SEM'] = df_pag['SEMESTRE'].astype(str).str.strip()
-                    df_pag_unique = df_pag.drop_duplicates(subset=['K_ID', 'K_SEM'], keep='last')
-                    mapa_ies_correcao = dict(zip(zip(df_pag_unique['K_ID'], df_pag_unique['K_SEM']), df_pag_unique['INS_NOME']))
+                self.log("📝 [ANÁLISE] Estruturando relatórios de pendências e divergências...", "cyan")
+
+                mapa_nomes_docs = {
+                    'CONTRATO': 'CONTRATO DE PRESTAÇÃO DE SERVIÇOS EDUCACIONAIS OU COMPROVANTE DE MATRÍCULA',
+                    'FINANCIAMENTO': 'COMPROVANTE DE FINANCIAMENTO',
+                    'OUTROS_BENEF': 'COMPROVANTE OUTROS BENEFÍCIOS',
+                    'RIAF': 'RIAF – RESUMO DE INFORMAÇÕES ACADÊMICAS E FINANCEIRAS'
+                }
+
+                for doc_type in ['CONTRATO', 'FINANCIAMENTO', 'OUTROS_BENEF', 'RIAF']:
+                    df_atual = dict_raw_dfs.get(doc_type, pd.DataFrame())
+                    nome_doc_oficial = mapa_nomes_docs.get(doc_type, doc_type)
                     
-                    def corrigir_ies(row):
-                        chave = (str(row['Inscrição']), str(row['Semestre']))
-                        if chave in mapa_ies_correcao:
-                            nova_ies = padronizar_texto(mapa_ies_correcao[chave])
-                            if nova_ies: return nova_ies
-                        return row['Faculdade']
-                    df_contratos['Faculdade'] = df_contratos.apply(corrigir_ies, axis=1)
+                    if not df_atual.empty:
+                        df_atual['Documento Tipo'] = nome_doc_oficial
                     
-                    df_contratos['KEY_EXISTENCIA'] = df_contratos['Inscrição'].astype(str) + "_" + df_contratos['Semestre'].astype(str)
-                    contratos_existentes = set(df_contratos['KEY_EXISTENCIA'])
-                    df_pag['KEY_EXISTENCIA'] = df_pag['K_ID'] + "_" + df_pag['K_SEM']
-                    df_diff = df_pag[~df_pag['KEY_EXISTENCIA'].isin(contratos_existentes)].copy()
-                    
-                    if not df_diff.empty:
-                        df_pendentes['Semestre'] = df_diff['SEMESTRE']
-                        df_pendentes['Inscrição'] = df_diff['UNI_CODIGO'].apply(converter_para_numero_real).astype('Int64')
-                        df_pendentes['CPF'] = df_diff['UNI_CPF'].apply(converter_para_numero_real).astype('Int64')
-                        df_pendentes['Faculdade'] = df_diff['INS_NOME']
-                        for col_nome in ['UNI_NOME', 'NOME', 'ALUNO', 'NOME_ALUNO', 'BOLSISTA']:
-                            if col_nome in df_diff.columns: df_pendentes['Bolsista'] = df_diff[col_nome]; break
-                        for col_curso in ['CUR_NOME', 'CURSO', 'NOME_CURSO']:
-                            if col_curso in df_diff.columns: df_pendentes['Curso'] = df_diff[col_curso]; break
-                        df_pendentes['IA_status'] = 'X'
-                        df_pendentes['Documento Tipo'] = 'CONTRATO PENDENTE'
-                        df_pendentes.drop_duplicates(subset=['Inscrição', 'Semestre'], inplace=True)
+                    if doc_type == 'CONTRATO':
+                        arq_div = ARQUIVO_DIVERGENCIAS
+                        arq_saida = ARQUIVO_SAIDA_CONTRATOS
+                        aba_div_1 = "contratos_divergentes"
+                        aba_div_2 = "pendentes_divergentes"
+                        aba_saida = "rel_contratos_consolidado"
+                    else:
+                        pasta_dest = os.path.join(DIR_RELATORIO_ANUAL, doc_type)
+                        if not os.path.exists(pasta_dest): os.makedirs(pasta_dest, exist_ok=True)
+                        arq_div = os.path.join(pasta_dest, f"rel_{doc_type.lower()}_divergentes.xlsx")
+                        arq_saida = os.path.join(pasta_dest, f"rel_{doc_type.lower()}.xlsx")
+                        aba_div_1 = f"{doc_type.lower()[:15]}_div"
+                        aba_div_2 = f"pendentes_div"
+                        aba_saida = f"rel_{doc_type.lower()[:15]}_cons"
+
+                    if not df_atual.empty:
+                        df_atual_div = df_atual.copy()
+                        df_atual_div['K_ID_DIV'] = df_atual_div['Inscrição'].astype(str).str.replace('.', '', regex=False).str.strip()
+                        df_atual_div['K_CPF_DIV'] = df_atual_div['CPF'].astype(str).str.replace('.', '', regex=False).str.replace('-', '', regex=False).str.strip().str.zfill(11)
+                        df_atual_div['K_INS_DIV'] = df_atual_div['Faculdade']
+                        df_atual_div['K_SEM_DIV'] = df_atual_div['Semestre'].astype(str).str.strip()
+                        df_atual_div['KEY_DIV'] = df_atual_div['K_ID_DIV'] + "_" + df_atual_div['K_CPF_DIV'] + "_" + df_atual_div['K_INS_DIV'] + "_" + df_atual_div['K_SEM_DIV']
                         
-                    writer_cont = pd.ExcelWriter(ARQUIVO_SAIDA_CONTRATOS, engine='xlsxwriter')
-                    df_final_cont = pd.concat([df_contratos, df_pendentes], ignore_index=True) if not df_pendentes.empty else df_contratos.copy()
-                    col_exist_cont = [c for c in ordem_base if c in df_final_cont.columns]
-                    self._aplicar_estilo_tabela(writer_cont, df_final_cont[col_exist_cont], "rel_contratos_consolidado")
-                    writer_cont.close()
-                    
-                    dict_raw_dfs['CONTRATO'] = df_contratos.drop(columns=['KEY_EXISTENCIA'], errors='ignore')
+                        set_atual_div = set(df_atual_div['KEY_DIV'])
+                        df_diff_div = df_pag[~df_pag['KEY_DIV'].isin(set_atual_div)].copy()
+                        
+                        if doc_type == 'RIAF':
+                            df_diff_div = df_diff_div[df_diff_div['SEMESTRE'].astype(str).str[:4] >= '2026']
+                        
+                        df_pendentes_div = pd.DataFrame()
+                        if not df_diff_div.empty:
+                            df_pendentes_div['Semestre'] = df_diff_div['SEMESTRE']
+                            df_pendentes_div['Inscrição'] = df_diff_div['UNI_CODIGO'].apply(converter_para_numero_real).astype('Int64')
+                            df_pendentes_div['CPF'] = df_diff_div['UNI_CPF'].apply(converter_para_numero_real).astype('Int64')
+                            df_pendentes_div['Faculdade'] = df_diff_div['INS_NOME']
+                            for col_nome in ['UNI_NOME', 'NOME', 'ALUNO', 'NOME_ALUNO', 'BOLSISTA']:
+                                if col_nome in df_diff_div.columns: df_pendentes_div['Bolsista'] = df_diff_div[col_nome]; break
+                            for col_curso in ['CUR_NOME', 'CURSO', 'NOME_CURSO']:
+                                if col_curso in df_diff_div.columns: df_pendentes_div['Curso'] = df_diff_div[col_curso]; break
+                            df_pendentes_div['IA_status'] = 'Ausentes'
+                            df_pendentes_div['Documento Tipo'] = nome_doc_oficial
+                            df_pendentes_div.drop_duplicates(subset=['Inscrição', 'Semestre', 'Faculdade'], inplace=True)
+                        
+                        writer_div = pd.ExcelWriter(arq_div, engine='xlsxwriter')
+                        col_exist_cdiv = [c for c in ordem_base if c in df_atual_div.columns]
+                        self._aplicar_estilo_tabela(writer_div, df_atual_div[col_exist_cdiv], aba_div_1)
+                        if not df_pendentes_div.empty:
+                            col_exist_pdiv = [c for c in ordem_base if c in df_pendentes_div.columns]
+                            self._aplicar_estilo_tabela(writer_div, df_pendentes_div[col_exist_pdiv], aba_div_2)
+                        writer_div.close()
+
+                        df_atual['Faculdade'] = df_atual.apply(corrigir_ies, axis=1)
+                        
+                        df_atual['KEY_EXISTENCIA'] = df_atual['Inscrição'].astype(str) + "_" + df_atual['Semestre'].astype(str)
+                        atual_existentes = set(df_atual['KEY_EXISTENCIA'])
+                        
+                        df_diff = df_pag[~df_pag['KEY_EXISTENCIA'].isin(atual_existentes)].copy()
+                        
+                        if doc_type == 'RIAF':
+                            df_diff = df_diff[df_diff['SEMESTRE'].astype(str).str[:4] >= '2026']
+                        
+                        df_pendentes_atual = pd.DataFrame()
+                        if not df_diff.empty:
+                            df_pendentes_atual['Semestre'] = df_diff['SEMESTRE']
+                            df_pendentes_atual['Inscrição'] = df_diff['UNI_CODIGO'].apply(converter_para_numero_real).astype('Int64')
+                            df_pendentes_atual['CPF'] = df_diff['UNI_CPF'].apply(converter_para_numero_real).astype('Int64')
+                            df_pendentes_atual['Faculdade'] = df_diff['INS_NOME']
+                            for col_nome in ['UNI_NOME', 'NOME', 'ALUNO', 'NOME_ALUNO', 'BOLSISTA']:
+                                if col_nome in df_diff.columns: df_pendentes_atual['Bolsista'] = df_diff[col_nome]; break
+                            for col_curso in ['CUR_NOME', 'CURSO', 'NOME_CURSO']:
+                                if col_curso in df_diff.columns: df_pendentes_atual['Curso'] = df_diff[col_curso]; break
+                            df_pendentes_atual['IA_status'] = 'Ausentes'
+                            df_pendentes_atual['Documento Tipo'] = nome_doc_oficial
+                            df_pendentes_atual.drop_duplicates(subset=['Inscrição', 'Semestre'], inplace=True)
+                            
+                        writer_cont = pd.ExcelWriter(arq_saida, engine='xlsxwriter')
+                        df_final_atual = pd.concat([df_atual, df_pendentes_atual], ignore_index=True) if not df_pendentes_atual.empty else df_atual.copy()
+                        col_exist_cont = [c for c in ordem_base if c in df_final_atual.columns]
+                        self._aplicar_estilo_tabela(writer_cont, df_final_atual[col_exist_cont], aba_saida)
+                        writer_cont.close()
+                        
+                        dict_raw_dfs[doc_type] = df_atual.drop(columns=['KEY_EXISTENCIA'], errors='ignore')
+                        if not df_pendentes_atual.empty:
+                            df_todas_pendencias.append(df_pendentes_atual)
 
         self.target_progress = 75
-        for tipo in ['FINANCIAMENTO', 'OUTROS_BENEF', 'RIAF']:
-            df_tipo = dict_raw_dfs.get(tipo, pd.DataFrame())
-            if not df_tipo.empty:
-                pasta_tipo = os.path.join(DIR_RELATORIO_ANUAL, tipo)
-                if not os.path.exists(pasta_tipo): os.makedirs(pasta_tipo, exist_ok=True)
-                arq_saida = os.path.join(pasta_tipo, f"rel_{tipo.lower()}.xlsx")
-                writer_tipo = pd.ExcelWriter(arq_saida, engine='xlsxwriter')
-                col_exist_tipo = [c for c in ordem_base if c in df_tipo.columns]
-                self._aplicar_estilo_tabela(writer_tipo, df_tipo[col_exist_tipo], f"rel_{tipo.lower()}_consolidado")
-                writer_tipo.close()
 
         self.log("🔗 [SQL] Acessando DB e coletando informações...", "cyan")
         self.target_progress = 85
@@ -820,8 +849,8 @@ class AutomacaoContratos:
         lista_master = []
         for t, d in dict_raw_dfs.items():
             if not d.empty: lista_master.append(d)
-        if not df_pendentes.empty:
-            lista_master.append(df_pendentes)
+        if df_todas_pendencias:
+            lista_master.extend(df_todas_pendencias)
             
         if lista_master:
             df_master = pd.concat(lista_master, ignore_index=True)
@@ -919,7 +948,10 @@ class AutomacaoContratos:
         ws.set_tab_color('#FF8C00')
         
         (mx_r, mx_c) = df.shape
-        
+        if mx_r == 0:
+            ws.write_row(0, 0, df.columns)
+            return
+            
         ws.add_table(0, 0, mx_r, mx_c - 1, {
             'columns': [{'header': c} for c in df.columns], 
             'style': 'Table Style Medium 9', 
@@ -961,6 +993,7 @@ class AutomacaoContratos:
                 ws.conditional_format(1, i, mx_r, i, {'type': 'text', 'criteria': 'begins with', 'value': 'V', 'format': fmt_valido})
                 ws.conditional_format(1, i, mx_r, i, {'type': 'text', 'criteria': 'begins with', 'value': 'I', 'format': fmt_invalido})
                 ws.conditional_format(1, i, mx_r, i, {'type': 'text', 'criteria': 'begins with', 'value': 'X', 'format': fmt_invalido})
+                ws.conditional_format(1, i, mx_r, i, {'type': 'text', 'criteria': 'begins with', 'value': 'A', 'format': fmt_invalido})
 
     def _limpar_temporarios(self):
         try:
