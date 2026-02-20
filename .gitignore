@@ -20,3 +20,4 @@ venv/
 # --- PASTAS DE DADOS GERADOS (IGNORAR) ---
 exports_semestrais/
 relatorio_anual/
+rel_pagamentos/
