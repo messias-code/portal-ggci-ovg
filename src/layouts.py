@@ -395,18 +395,16 @@ def layout_ferramenta_analise_contratos():
                         # COLUNA ESQUERDA - DOCUMENTOS (TRAVADOS NA LÓGICA REAL)
                         dbc.Col([
                             dbc.Label("TIPOS DE DOCUMENTOS", className="fw-bold text-muted small mb-2"),
-                            # Docs Gerais travados
-                            dbc.Switch(id="sw-docs-todos", label="TODOS", value=False, disabled=True, style=estilo_switch),
                             
-                            # APENAS ESTE ATIVO E TRAVADO
-                            dbc.Switch(id="sw-contratos", label="CONTRATO DE PRESTAÇÃO DE SERVIÇOS EDUCACIONAIS OU COMPROVANTE DE MATRÍCULA", value=True, disabled=True, style=estilo_switch),
+                            # AGORA "TODOS" FICA ATIVO E TRAVADO
+                            dbc.Switch(id="sw-docs-todos", label="TODOS", value=True, disabled=True, style=estilo_switch),
                             
-                            # Outros travados
+                            # O RESTANTE FICA DESATIVADO E TRAVADO
+                            dbc.Switch(id="sw-contratos", label="CONTRATO DE PRESTAÇÃO DE SERVIÇOS EDUCACIONAIS OU COMPROVANTE DE MATRÍCULA", value=False, disabled=True, style=estilo_switch),
                             dbc.Switch(id="sw-financeiro", label="COMPROVANTE DE FINANCIAMENTO", value=False, disabled=True, style=estilo_switch),
                             dbc.Switch(id="sw-beneficios", label="COMPROVANTE OUTROS BENEFÍCIOS", value=False, disabled=True, style=estilo_switch),
                             dbc.Switch(id="sw-riaf", label="RIAF – RESUMO DE INFORMAÇÕES ACADÊMICAS E FINANCEIRAS", value=False, disabled=True, style=estilo_switch),
-                        ], md=6, className="border-end border-secondary pe-3"),
-                        
+                        ], md=6, className="border-end border-secondary pe-3"),                        
                         # COLUNA DIREITA
                         dbc.Col([
                             dbc.Row([
