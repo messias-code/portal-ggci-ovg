@@ -435,8 +435,58 @@ app.clientside_callback(
 )
 
 # =============================================================================
-# CALLBACKS: FERRAMENTA DE CONTRATOS (INTEGRAÇÃO REAL)
+# CALLBACKS: FERRAMENTA DE CONTRATOS (INTEGRAÇÃO REAL E UX)
 # =============================================================================
+
+# --- LOGICA DOS SWITCHES (MUTUAL EXCLUSIVITY) ---
+@callback(
+    [Output("sw-docs-todos", "value"), Output("sw-contratos", "value"), Output("sw-financeiro", "value"), Output("sw-beneficios", "value"), Output("sw-riaf", "value")],
+    [Input("sw-docs-todos", "value"), Input("sw-contratos", "value"), Input("sw-financeiro", "value"), Input("sw-beneficios", "value"), Input("sw-riaf", "value")],
+    prevent_initial_call=True
+)
+def toggle_docs_switches(todos, cont, fin, ben, riaf):
+    trig = ctx.triggered_id
+    if trig == "sw-docs-todos":
+        if todos: return True, False, False, False, False
+        elif not any([cont, fin, ben, riaf]): return True, False, False, False, False
+    else:
+        if cont and fin and ben and riaf: return True, False, False, False, False
+        elif any([cont, fin, ben, riaf]): return False, no_update, no_update, no_update, no_update
+        else: return True, False, False, False, False
+    return no_update, no_update, no_update, no_update, no_update
+
+@callback(
+    [Output("sw-ano-todos", "value"), Output("sw-ano-2025", "value"), Output("sw-ano-2026", "value")],
+    [Input("sw-ano-todos", "value"), Input("sw-ano-2025", "value"), Input("sw-ano-2026", "value")],
+    prevent_initial_call=True
+)
+def toggle_anos_switches(todos, a25, a26):
+    trig = ctx.triggered_id
+    if trig == "sw-ano-todos":
+        if todos: return True, False, False
+        elif not any([a25, a26]): return True, False, False
+    else:
+        if a25 and a26: return True, False, False
+        elif any([a25, a26]): return False, no_update, no_update
+        else: return True, False, False
+    return no_update, no_update, no_update
+
+@callback(
+    [Output("sw-sem-todos", "value"), Output("sw-sem-1", "value"), Output("sw-sem-2", "value")],
+    [Input("sw-sem-todos", "value"), Input("sw-sem-1", "value"), Input("sw-sem-2", "value")],
+    prevent_initial_call=True
+)
+def toggle_sem_switches(todos, s1, s2):
+    trig = ctx.triggered_id
+    if trig == "sw-sem-todos":
+        if todos: return True, False, False
+        elif not any([s1, s2]): return True, False, False
+    else:
+        if s1 and s2: return True, False, False
+        elif any([s1, s2]): return False, no_update, no_update
+        else: return True, False, False
+    return no_update, no_update, no_update
+
 
 # Instância Global do Robô (Singleton)
 robo_contratos = AutomacaoContratos()

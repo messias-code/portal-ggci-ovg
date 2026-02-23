@@ -396,32 +396,27 @@ def layout_ferramenta_analise_contratos():
                         dbc.Col([
                             dbc.Label("TIPOS DE DOCUMENTOS", className="fw-bold text-muted small mb-2"),
                             
-                            # AGORA "TODOS" FICA ATIVO E TRAVADO
-                            dbc.Switch(id="sw-docs-todos", label="TODOS", value=True, disabled=True, style=estilo_switch),
-                            
-                            # O RESTANTE FICA DESATIVADO E TRAVADO
-                            dbc.Switch(id="sw-contratos", label="CONTRATO DE PRESTAÇÃO DE SERVIÇOS EDUCACIONAIS OU COMPROVANTE DE MATRÍCULA", value=False, disabled=True, style=estilo_switch),
-                            dbc.Switch(id="sw-financeiro", label="COMPROVANTE DE FINANCIAMENTO", value=False, disabled=True, style=estilo_switch),
-                            dbc.Switch(id="sw-beneficios", label="COMPROVANTE OUTROS BENEFÍCIOS", value=False, disabled=True, style=estilo_switch),
-                            dbc.Switch(id="sw-riaf", label="RIAF – RESUMO DE INFORMAÇÕES ACADÊMICAS E FINANCEIRAS", value=False, disabled=True, style=estilo_switch),
+                            dbc.Switch(id="sw-docs-todos", label="TODOS", value=True, style=estilo_switch),
+                            dbc.Switch(id="sw-contratos", label="CONTRATO DE PRESTAÇÃO DE SERVIÇOS EDUCACIONAIS OU COMPROVANTE DE MATRÍCULA", value=False, style=estilo_switch),
+                            dbc.Switch(id="sw-financeiro", label="COMPROVANTE DE FINANCIAMENTO", value=False, style=estilo_switch),
+                            dbc.Switch(id="sw-beneficios", label="COMPROVANTE OUTROS BENEFÍCIOS", value=False, style=estilo_switch),
+                            dbc.Switch(id="sw-riaf", label="RIAF – RESUMO DE INFORMAÇÕES ACADÊMICAS E FINANCEIRAS", value=False, style=estilo_switch),
                         ], md=6, className="border-end border-secondary pe-3"),                        
                         # COLUNA DIREITA
                         dbc.Col([
                             dbc.Row([
                                 dbc.Col([
                                     dbc.Label("ANOS LETIVOS", className="fw-bold text-muted small mb-2"),
-                                    # "De resto são todos" -> Todos Ativo e travado
-                                    dbc.Switch(id="sw-ano-todos", label="TODOS", value=True, disabled=True, style=estilo_switch),
-                                    dbc.Switch(id="sw-ano-2025", label="2025", value=False, disabled=True, style=estilo_switch),
-                                    dbc.Switch(id="sw-ano-2026", label="2026", value=False, disabled=True, style=estilo_switch),
+                                    dbc.Switch(id="sw-ano-todos", label="TODOS", value=True, style=estilo_switch),
+                                    dbc.Switch(id="sw-ano-2025", label="2025", value=False, style=estilo_switch),
+                                    dbc.Switch(id="sw-ano-2026", label="2026", value=False, style=estilo_switch),
                                 ], width=4),
                                 
                                 dbc.Col([
                                     dbc.Label("SEMESTRES", className="fw-bold text-muted small mb-2"),
-                                    # "De resto são todos" -> Todos Ativo e travado
-                                    dbc.Switch(id="sw-sem-todos", label="TODOS", value=True, disabled=True, style=estilo_switch),
-                                    dbc.Switch(id="sw-sem-1", label="1º Semestre", value=False, disabled=True, style=estilo_switch),
-                                    dbc.Switch(id="sw-sem-2", label="2º Semestre", value=False, disabled=True, style=estilo_switch),
+                                    dbc.Switch(id="sw-sem-todos", label="TODOS", value=True, style=estilo_switch),
+                                    dbc.Switch(id="sw-sem-1", label="1º Semestre", value=False, style=estilo_switch),
+                                    dbc.Switch(id="sw-sem-2", label="2º Semestre", value=False, style=estilo_switch),
                                 ], width=4),
                                 
                                 dbc.Col([
