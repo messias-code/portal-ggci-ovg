@@ -2,7 +2,7 @@
 =============================================================================
 ARQUIVO: src/analise_contratos.py
 DESCRIÇÃO:
-    Motor de automação (Selenium + SQL).
+    Motor de automação (Selenium + SQL) com consolidação e relatórios avançados.
 =============================================================================
 """
 import os
@@ -49,7 +49,7 @@ ARQUIVO_PAGAMENTOS_CONSOLIDADO = os.path.join(DIR_RELATORIO_PAGAMENTOS, "rel_pag
 ARQUIVO_MASTER_CONSOLIDADO = os.path.join(DIR_RELATORIO_CONSOLIDADOS, "rel_documentos.xlsx")
 ARQUIVO_ZIP_FINAL = os.path.join(DIR_RELATORIO_ANUAL, "relatorios_contratos.zip")
 
-# CONFIGURAÇÃO OFICIAL DOS DOCUMENTOS (Ordem Obrigatória)
+# CONFIGURAÇÃO OFICIAL DOS DOCUMENTOS
 DOCS_TO_FETCH = [
     {
         "id": "CONTRATO",
@@ -99,7 +99,6 @@ def converter_para_numero_real(valor):
     if not s: return pd.NA
     return int(s)
 
-
 class AutomacaoContratos:
     _instance = None
 
@@ -145,19 +144,10 @@ class AutomacaoContratos:
         with self.lock:
             if self.is_running and self.progress < self.target_progress:
                 distancia = self.target_progress - self.progress
-                if distancia > 15:
-                    passo = 1.5
-                elif distancia > 5:
-                    passo = 1.0
-                else:
-                    passo = 0.5
-                
+                passo = 1.5 if distancia > 15 else (1.0 if distancia > 5 else 0.5)
                 self.progress += passo
-                if self.progress > self.target_progress:
-                    self.progress = self.target_progress
-            
-            if self.status_final == "success":
-                self.progress = 100
+                if self.progress > self.target_progress: self.progress = self.target_progress
+            if self.status_final == "success": self.progress = 100
 
             return {
                 "progress": int(self.progress),
@@ -170,15 +160,12 @@ class AutomacaoContratos:
 
     def _garantir_pastas(self):
         for pasta in [DIR_EXPORTS_BASE, DIR_RELATORIO_ANUAL, PASTA_TEMP_PAGAMENTOS, DIR_RELATORIO_PAGAMENTOS, DIR_RELATORIO_CONTRATOS, DIR_RELATORIO_CONSOLIDADOS]:
-            if not os.path.exists(pasta):
-                os.makedirs(pasta, exist_ok=True)
+            if not os.path.exists(pasta): os.makedirs(pasta, exist_ok=True)
         for doc in DOCS_TO_FETCH:
             pasta_doc = os.path.join(DIR_EXPORTS_BASE, doc['id'])
-            if not os.path.exists(pasta_doc):
-                os.makedirs(pasta_doc, exist_ok=True)
+            if not os.path.exists(pasta_doc): os.makedirs(pasta_doc, exist_ok=True)
             pasta_rel = os.path.join(DIR_RELATORIO_ANUAL, doc['id'])
-            if not os.path.exists(pasta_rel):
-                os.makedirs(pasta_rel, exist_ok=True)
+            if not os.path.exists(pasta_rel): os.makedirs(pasta_rel, exist_ok=True)
 
     def start(self):
         if self.is_running: return
@@ -199,7 +186,6 @@ class AutomacaoContratos:
         if self.is_running:
             self.stop_event.set()
             self.log("⚙️ [USUÁRIO] Parada imediata solicitada. Abortando...", "yellow")
-            
             self.is_running = False 
             self.status_final = "error"
             
@@ -209,7 +195,6 @@ class AutomacaoContratos:
                     self.active_drivers.clear()
                 for driver in drivers_copy:
                     matar_driver_forca_bruta(driver)
-                    
             threading.Thread(target=_kill_drivers).start()
 
     def _run_process(self):
@@ -222,15 +207,13 @@ class AutomacaoContratos:
                 futures = []
                 for dados in self.semestres:
                     futures.append(executor.submit(self._worker_contratos_retry, dados))
-                
                 futures.append(executor.submit(self._worker_pagamentos))
                 
                 for future in concurrent.futures.as_completed(futures):
                     if self.stop_event.is_set(): break
                     try: future.result()
                     except Exception as e: 
-                        if not self.stop_event.is_set():
-                            self.log(f"⚙️ [ERRO] Falha em thread: {e}", "red")
+                        if not self.stop_event.is_set(): self.log(f"⚙️ [ERRO] Falha em thread: {e}", "red")
 
             if self.stop_event.is_set():
                 self.is_running = False
@@ -250,12 +233,10 @@ class AutomacaoContratos:
                             if file != os.path.basename(ARQUIVO_ZIP_FINAL): 
                                 file_path = os.path.join(root, file)
                                 zipf.write(file_path, os.path.relpath(file_path, DIRETORIO_RAIZ))
-                    
                     for root, dirs, files in os.walk(DIR_EXPORTS_BASE):
                         for file in files:
                             file_path = os.path.join(root, file)
                             zipf.write(file_path, os.path.relpath(file_path, DIRETORIO_RAIZ))
-                            
                     for root, dirs, files in os.walk(DIR_RELATORIO_PAGAMENTOS):
                         for file in files:
                             file_path = os.path.join(root, file)
@@ -265,7 +246,6 @@ class AutomacaoContratos:
                 self.arquivo_principal = ARQUIVO_MASTER_CONSOLIDADO
 
             self._limpar_temporarios()
-
             elapsed = time.time() - self.start_time
             tempo_fmt = str(datetime.timedelta(seconds=int(elapsed)))
 
@@ -299,10 +279,8 @@ class AutomacaoContratos:
         for tentativa in range(1, self.MAX_TENTATIVAS + 1):
             if self.stop_event.is_set(): break
             try:
-                if tentativa == 1:
-                    self.log(f"⚙️ [{nome}] Acessando portal e aplicando filtros...", "cyan")
-                else:
-                    self.log(f"⚙️ [{nome}] Tentativa {tentativa}: Reiniciando extração...", "yellow")
+                if tentativa == 1: self.log(f"⚙️ [{nome}] Acessando portal e aplicando filtros...", "cyan")
+                else: self.log(f"⚙️ [{nome}] Tentativa {tentativa}: Reiniciando extração...", "yellow")
                 
                 sucesso = self._contratos_navegador(dados_semestre, docs_baixados_nesta_sessao)
                 if sucesso:
@@ -313,7 +291,6 @@ class AutomacaoContratos:
                 if self.stop_event.is_set():
                     self.log(f"⚙️ [{nome}] Extração cancelada.", "yellow")
                     return False
-                
                 if tentativa < self.MAX_TENTATIVAS:
                     self.log(f"⚙️ [{nome}] Erro ao baixar ({str(e)}), repetindo...", "yellow")
                     time.sleep(3)
@@ -326,6 +303,7 @@ class AutomacaoContratos:
         
         nome_semestre = dados_semestre['label']
         valor_semestre = dados_semestre['value']
+        
         ano_str = nome_semestre.split('-')[0]
         ano_int = int(ano_str) if ano_str.isdigit() else 2025
 
@@ -358,11 +336,8 @@ class AutomacaoContratos:
             wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "#item_163"))).click()
 
             for doc in DOCS_TO_FETCH:
-                if doc['id'] in docs_baixados_nesta_sessao:
-                    continue
-                
-                if doc['id'] == 'RIAF' and ano_int < 2026:
-                    continue
+                if doc['id'] in docs_baixados_nesta_sessao: continue
+                if doc['id'] == 'RIAF' and ano_int < 2026: continue
                 
                 pasta_temp = os.path.join(DIR_EXPORTS_BASE, doc['id'], f"temp_{nome_semestre}")
                 if not os.path.exists(pasta_temp): os.makedirs(pasta_temp, exist_ok=True)
@@ -431,7 +406,6 @@ class AutomacaoContratos:
                 arquivo_encontrado = None
                 for _ in range(240):
                     if self.stop_event.is_set(): break 
-
                     if not os.path.exists(pasta_temp): break
                     arquivos = os.listdir(pasta_temp)
                     validos = [f for f in arquivos if f.endswith(('.xlsx', '.xls')) and not f.startswith('.')]
@@ -467,7 +441,6 @@ class AutomacaoContratos:
                     self.active_drivers.remove(driver)
             matar_driver_forca_bruta(driver)
 
-
     def _worker_pagamentos(self):
         driver = None
         try:
@@ -476,9 +449,8 @@ class AutomacaoContratos:
             self.update_progress(2)
             
             ua = UserAgent()
-            agente = ua.chrome
             opcoes = webdriver.ChromeOptions()
-            opcoes.add_argument(f"user-agent={agente}")
+            opcoes.add_argument(f"user-agent={ua.chrome}")
             opcoes.add_argument("--headless=new") 
             opcoes.add_argument("--window-size=1920,1080")
             opcoes.add_argument('--ignore-certificate-errors')
@@ -642,9 +614,8 @@ class AutomacaoContratos:
                 try: shutil.rmtree(PASTA_TEMP_PAGAMENTOS, ignore_errors=True)
                 except: pass
 
-
     # =========================================================================
-    # LÓGICA DE CONSOLIDAÇÃO PRINCIPAL E FORMATAÇÃO DE ARQUIVOS
+    # LÓGICA DE CONSOLIDAÇÃO PRINCIPAL
     # =========================================================================
 
     def consolidar_contratos_e_pendencias_com_correcao(self):
@@ -689,13 +660,15 @@ class AutomacaoContratos:
             dict_raw_dfs[tipo] = df_concat
 
         ordem_base = [
-            'IA_status', 'Semestre', 'Gemini Semestre', 'Inscrição', 'Bolsista', 'CPF', 'Gemini CPF', 'Gemini Inconsistencias', 
+            'IA_status', 'Status Vínculo', 'Mudou IES?', 'IES Anterior', 'Mudou Bolsa?', 'Bolsa Anterior',
+            'Semestre', 'Gemini Semestre', 'Inscrição', 'Bolsista', 'CPF', 'Gemini CPF', 'Gemini Inconsistencias', 
             'Faculdade', 'Curso', 'Mensalidade S/ Desconto', 'Gemini Mensalidade S/ Desconto', 'Dif. s/Desc.', 
             'Mensalidade C/ Desconto', 'Gemini Mensalidade C/ Desconto', 'Dif. c/Desc.', 'Documento Tipo', 'Data Processamento'
         ]
         
         ordem_master = [
-            'IA_status', 'Mudou IES?', 'IES Anterior', 'Mudou Bolsa?', 'Bolsa Anterior', 'Semestre', 'Gemini Semestre', 'Inscrição', 'Bolsista', 'CPF', 'Gemini CPF', 'Gemini Inconsistencias', 
+            'IA_status', 'Status Vínculo', 'Mudou IES?', 'IES Anterior', 'Mudou Bolsa?', 'Bolsa Anterior', 
+            'Semestre', 'Gemini Semestre', 'Inscrição', 'Bolsista', 'CPF', 'Gemini CPF', 'Gemini Inconsistencias', 
             'Faculdade', 'Curso', 'tipo_bolsa_final', 'tipo_pagto', 'qtd_pagtos', 'valor_ultima_bolsa_paga', 
             'Mensalidade S/ Desconto', 'Gemini Mensalidade S/ Desconto', 'Dif. s/Desc.', 
             'Mensalidade C/ Desconto', 'Gemini Mensalidade C/ Desconto', 'Dif. c/Desc.', 'Documento Tipo', 'Data Processamento'
@@ -721,15 +694,18 @@ class AutomacaoContratos:
                 df_pag['FLAG_IES'] = df_pag.apply(lambda x: get_flag_mudanca(x['INS_NOME'], x['PREV_IES']), axis=1)
                 df_pag['ANT_IES'] = df_pag.apply(lambda x: get_prev_value(x['INS_NOME'], x['PREV_IES']), axis=1)
 
-                df_pag['K_ID_DIV'] = df_pag['UNI_CODIGO'].astype(str).str.replace('.', '', regex=False).str.strip()
-                df_pag['K_CPF_DIV'] = df_pag['UNI_CPF'].astype(str).str.replace('.', '', regex=False).str.replace('-', '', regex=False).str.strip().str.zfill(11)
-                df_pag['K_INS_DIV'] = df_pag['INS_NOME']
-                df_pag['K_SEM_DIV'] = df_pag['SEMESTRE'].astype(str).str.strip()
-                df_pag['KEY_DIV'] = df_pag['K_ID_DIV'] + "_" + df_pag['K_CPF_DIV'] + "_" + df_pag['K_INS_DIV'] + "_" + df_pag['K_SEM_DIV']
-                
                 df_pag['K_ID'] = df_pag['UNI_CODIGO'].astype(str).str.replace('.', '', regex=False).str.strip()
                 df_pag['K_SEM'] = df_pag['SEMESTRE'].astype(str).str.strip()
-                df_pag['KEY_EXISTENCIA'] = df_pag['K_ID'] + "_" + df_pag['K_SEM']
+                df_pag['KEY_STR'] = df_pag['K_ID'] + "_" + df_pag['K_SEM']
+
+                # Mapeamentos Otimizados para Vectorização
+                map_flag_bolsa = df_pag.drop_duplicates('KEY_STR', keep='last').set_index('KEY_STR')['FLAG_BOLSA'].to_dict()
+                map_ant_bolsa = df_pag.drop_duplicates('KEY_STR', keep='last').set_index('KEY_STR')['ANT_BOLSA'].to_dict()
+                map_flag_ies = df_pag.drop_duplicates('KEY_STR', keep='last').set_index('KEY_STR')['FLAG_IES'].to_dict()
+                map_ant_ies = df_pag.drop_duplicates('KEY_STR', keep='last').set_index('KEY_STR')['ANT_IES'].to_dict()
+                
+                inscricoes_2026 = set(df_pag[df_pag['SEMESTRE'].astype(str).str.startswith('2026')]['K_ID'])
+
                 df_pag_unique = df_pag.drop_duplicates(subset=['K_ID', 'K_SEM'], keep='last')
                 mapa_ies_correcao = dict(zip(zip(df_pag_unique['K_ID'], df_pag_unique['K_SEM']), df_pag_unique['INS_NOME']))
                 
@@ -739,6 +715,16 @@ class AutomacaoContratos:
                         nova_ies = padronizar_texto(mapa_ies_correcao[chave])
                         if nova_ies: return nova_ies
                     return row['Faculdade']
+
+                def aplicar_flags_vectorizado(df_target):
+                    if df_target.empty: return df_target
+                    temp_key = df_target['Inscrição'].astype(str) + '_' + df_target['Semestre'].astype(str)
+                    df_target['Mudou IES?'] = temp_key.map(map_flag_ies).fillna("NÃO")
+                    df_target['IES Anterior'] = temp_key.map(map_ant_ies).fillna("-")
+                    df_target['Mudou Bolsa?'] = temp_key.map(map_flag_bolsa).fillna("NÃO")
+                    df_target['Bolsa Anterior'] = temp_key.map(map_ant_bolsa).fillna("-")
+                    df_target['Status Vínculo'] = df_target['Inscrição'].astype(str).apply(lambda x: 'ATIVO' if x in inscricoes_2026 else 'DESLIGADO')
+                    return df_target
 
                 self.log("📝 [ANÁLISE] Estruturando relatórios de pendências e divergências...", "cyan")
 
@@ -780,7 +766,13 @@ class AutomacaoContratos:
                         df_atual_div['KEY_DIV'] = df_atual_div['K_ID_DIV'] + "_" + df_atual_div['K_CPF_DIV'] + "_" + df_atual_div['K_INS_DIV'] + "_" + df_atual_div['K_SEM_DIV']
                         
                         set_atual_div = set(df_atual_div['KEY_DIV'])
-                        df_diff_div = df_pag[~df_pag['KEY_DIV'].isin(set_atual_div)].copy()
+                        
+                        # Geração correta da KEY_DIV no df_pag para a comparação
+                        df_pag_diff = df_pag.copy()
+                        df_pag_diff['K_CPF_DIV'] = df_pag_diff['UNI_CPF'].astype(str).str.replace('.', '', regex=False).str.replace('-', '', regex=False).str.strip().str.zfill(11)
+                        df_pag_diff['KEY_DIV'] = df_pag_diff['K_ID'] + "_" + df_pag_diff['K_CPF_DIV'] + "_" + df_pag_diff['INS_NOME'] + "_" + df_pag_diff['K_SEM']
+                        
+                        df_diff_div = df_pag_diff[~df_pag_diff['KEY_DIV'].isin(set_atual_div)].copy()
                         
                         if doc_type == 'RIAF':
                             df_diff_div = df_diff_div[df_diff_div['SEMESTRE'].astype(str).str[:4] >= '2026']
@@ -799,6 +791,9 @@ class AutomacaoContratos:
                             df_pendentes_div['Documento Tipo'] = nome_doc_oficial
                             df_pendentes_div.drop_duplicates(subset=['Inscrição', 'Semestre', 'Faculdade'], inplace=True)
                         
+                        df_atual_div = aplicar_flags_vectorizado(df_atual_div)
+                        df_pendentes_div = aplicar_flags_vectorizado(df_pendentes_div)
+                        
                         writer_div = pd.ExcelWriter(arq_div, engine='xlsxwriter')
                         col_exist_cdiv = [c for c in ordem_base if c in df_atual_div.columns]
                         self._aplicar_estilo_tabela(writer_div, df_atual_div[col_exist_cdiv], aba_div_1)
@@ -808,11 +803,10 @@ class AutomacaoContratos:
                         writer_div.close()
 
                         df_atual['Faculdade'] = df_atual.apply(corrigir_ies, axis=1)
-                        
                         df_atual['KEY_EXISTENCIA'] = df_atual['Inscrição'].astype(str) + "_" + df_atual['Semestre'].astype(str)
                         atual_existentes = set(df_atual['KEY_EXISTENCIA'])
                         
-                        df_diff = df_pag[~df_pag['KEY_EXISTENCIA'].isin(atual_existentes)].copy()
+                        df_diff = df_pag[~df_pag['KEY_STR'].isin(atual_existentes)].copy()
                         
                         if doc_type == 'RIAF':
                             df_diff = df_diff[df_diff['SEMESTRE'].astype(str).str[:4] >= '2026']
@@ -830,6 +824,9 @@ class AutomacaoContratos:
                             df_pendentes_atual['IA_status'] = 'Ausentes'
                             df_pendentes_atual['Documento Tipo'] = nome_doc_oficial
                             df_pendentes_atual.drop_duplicates(subset=['Inscrição', 'Semestre'], inplace=True)
+                            
+                        df_atual = aplicar_flags_vectorizado(df_atual)
+                        df_pendentes_atual = aplicar_flags_vectorizado(df_pendentes_atual)
                             
                         writer_cont = pd.ExcelWriter(arq_saida, engine='xlsxwriter')
                         df_final_atual = pd.concat([df_atual, df_pendentes_atual], ignore_index=True) if not df_pendentes_atual.empty else df_atual.copy()
@@ -888,33 +885,52 @@ class AutomacaoContratos:
                 df_master['valor_ultima_bolsa_paga'] = df_master['valor_ultima_bolsa_paga'].fillna(0.0)
                 if 'tipo_pagto' in df_master.columns: df_master['tipo_pagto'] = df_master['tipo_pagto'].fillna("")
 
-            df_master['Mudou IES?'] = "N/A"
-            df_master['IES Anterior'] = "N/A"
-            df_master['Mudou Bolsa?'] = "N/A"
-            df_master['Bolsa Anterior'] = "N/A"
-            
-            if 'df_pag' in locals() and not df_pag.empty:
-                df_pag['KEY_MAP'] = list(zip(df_pag['UNI_CODIGO'].astype(str), df_pag['SEMESTRE'].astype(str)))
-                map_flag_bolsa = dict(zip(df_pag['KEY_MAP'], df_pag['FLAG_BOLSA']))
-                map_ant_bolsa = dict(zip(df_pag['KEY_MAP'], df_pag['ANT_BOLSA']))
-                map_flag_ies = dict(zip(df_pag['KEY_MAP'], df_pag['FLAG_IES']))
-                map_ant_ies = dict(zip(df_pag['KEY_MAP'], df_pag['ANT_IES']))
-
-                def aplicar_flags_master(row):
-                    chave = (str(row['Inscrição']), str(row['Semestre']))
-                    return pd.Series([
-                        map_flag_ies.get(chave, "NÃO"),
-                        map_ant_ies.get(chave, "-"),
-                        map_flag_bolsa.get(chave, "NÃO"),
-                        map_ant_bolsa.get(chave, "-")
-                    ])
-                df_master[['Mudou IES?', 'IES Anterior', 'Mudou Bolsa?', 'Bolsa Anterior']] = df_master.apply(aplicar_flags_master, axis=1)
-
             col_exist_master = [c for c in ordem_master if c in df_master.columns]
             df_master = df_master[col_exist_master]
+
+            self.log("📊 [RELATÓRIO] Gerando resumo quantitativo por IES e Semestre...", "cyan")
+            resumo_data = []
             
+            # Aqui fazemos o agrupamento respeitando Faculdade e Semestre (Corrige a contagem!)
+            for (ies, semestre), group in df_master.groupby(['Faculdade', 'Semestre']):
+                tot_benef = group['Inscrição'].nunique()
+                ativos = group[group['Status Vínculo'] == 'ATIVO']['Inscrição'].nunique()
+                desligados = group[group['Status Vínculo'] == 'DESLIGADO']['Inscrição'].nunique()
+                
+                row = {
+                    'IES': ies,
+                    'Semestre': semestre,
+                    'Total Beneficiários': tot_benef,
+                    'Ativos': ativos,
+                    'Desligados': desligados
+                }
+                
+                for doc_k, doc_name in mapa_nomes_docs.items():
+                    mask_doc = group['Documento Tipo'] == doc_name
+                    enviados = group[mask_doc & (group['IA_status'] != 'Ausentes')]['Inscrição'].nunique()
+                    pendentes = group[mask_doc & (group['IA_status'] == 'Ausentes')]['Inscrição'].nunique()
+                    
+                    short_name = doc_k
+                    if doc_k == 'OUTROS_BENEF': short_name = 'BENEFÍCIOS'
+                    
+                    # Coloca a enviada e logo do lado a pendente daquele tipo
+                    row[f'Env. {short_name}'] = enviados
+                    row[f'Pend. {short_name}'] = pendentes
+                    
+                resumo_data.append(row)
+                
+            df_resumo = pd.DataFrame(resumo_data)
+            if not df_resumo.empty:
+                # Ordenar alfabeticamente pela Faculdade e depois por Semestre
+                df_resumo.sort_values(by=['IES', 'Semestre'], ascending=[True, True], inplace=True)
+
             writer_master = pd.ExcelWriter(ARQUIVO_MASTER_CONSOLIDADO, engine='xlsxwriter')
             self._aplicar_estilo_tabela(writer_master, df_master, "rel_documentos_consolidados")
+            
+            if not df_resumo.empty:
+                # Renomeando a aba como pedido
+                self._aplicar_estilo_tabela(writer_master, df_resumo, "Resumo_Quantitativo")
+                
             writer_master.close()
 
         return True
