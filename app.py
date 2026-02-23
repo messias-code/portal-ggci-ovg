@@ -6,14 +6,11 @@ DESCRIÇÃO:
 =============================================================================
 """
 import dash
-from dash import dcc, html, Input, Output, State, callback, ctx, no_update, ALL, callback_context
+from dash import dcc, html, Input, Output, State, callback, ctx, no_update, ALL
 import dash_bootstrap_components as dbc
 import unicodedata
 import re
 import os
-import sys
-import subprocess
-import platform
 from collections import Counter
 from dash_iconify import DashIconify
 
@@ -50,79 +47,28 @@ app.title = "Portal GGCI"
 
 # Layout Base (Skeleton)
 app.layout = html.Div([
-    dcc.Location(id='url', refresh=False),           # Ouve a URL do navegador
-    dcc.Store(id='auth-store', storage_type='session'), # Mantém os dados do usuário na sessão
-    html.Div(id='page-content')                      # Onde as páginas são renderizadas dinamicamente
+    dcc.Location(id='url', refresh=False),           
+    dcc.Store(id='auth-store', storage_type='session'), 
+    html.Div(id='page-content')                      
 ])
 
 # =============================================================================
 # FUNÇÕES AUXILIARES GERAIS
 # =============================================================================
-
 def remove_acentos(texto):
-    """Normaliza strings removendo acentuação."""
     if not isinstance(texto, str): return str(texto)
     return ''.join(c for c in unicodedata.normalize('NFD', texto) if unicodedata.category(c) != 'Mn')
-
-# =============================================================================
-# AUTOMAÇÃO DE REDE (WINDOWS / WSL)
-# =============================================================================
-def configurar_rede_automatica(port):
-    """Detecta o ambiente e exibe os links corretos."""
-    system_info = platform.release().lower()
-    is_wsl = "microsoft" in system_info or "wsl" in system_info
-    
-    hostname = "localhost"
-    windows_ip = "IP-NAO-DETECTADO"
-    
-    print("\n" + "="*70)
-    
-    try:
-        if is_wsl:
-            raw_host = subprocess.check_output(["powershell.exe", "-NoProfile", "-Command", "hostname"])
-            hostname = raw_host.decode('utf-8', errors='ignore').strip()
-            
-            cmd_get_ip = r"(Get-NetIPConfiguration | Where-Object { $_.IPv4DefaultGateway -ne $null }).IPv4Address.IPAddress"
-            raw_ip = subprocess.check_output(["powershell.exe", "-NoProfile", "-Command", cmd_get_ip])
-            windows_ip = raw_ip.decode('utf-8', errors='ignore').strip()
-
-            try:
-                raw_wsl = subprocess.check_output(["hostname", "-I"])
-                wsl_ip = raw_wsl.decode('utf-8', errors='ignore').strip().split()[0]
-                ps_script = f"netsh interface portproxy add v4tov4 listenport={port} listenaddress=0.0.0.0 connectport={port} connectaddress={wsl_ip}"
-                subprocess.run(["powershell.exe", "-NoProfile", "-Command", ps_script], capture_output=True)
-            except:
-                pass 
-        else:
-            hostname = platform.node()
-            import socket
-            windows_ip = socket.gethostbyname(hostname)
-
-    except Exception as e:
-        print(f"⚠️ Aviso: Não foi possível detectar IP externo automaticamente: {e}")
-
-    print(f"🚀 INICIANDO PORTAL GGCI | HOST: {hostname}")
-    print("-" * 70)
-    print("📢 LINKS DE ACESSO:")
-    print(f"   👉 Pelo Nome (PC/Intranet):   http://{hostname}.ovg.org.br:{port}")
-    print(f"   👉 Pelo IP (Celular/Wi-Fi):   http://{windows_ip}:{port}")
-    print("")
-    print(f"   🏠 Acesso Local (Você):       http://localhost:{port}")
-    print("="*70 + "\n")
 
 # =============================================================================
 # ROTEADOR (NAVIGATION CONTROLLER)
 # =============================================================================
 @callback(Output('page-content', 'children'), Input('url', 'pathname'), Input('auth-store', 'data'))
 def router(pathname, auth_data):
-    # 1. Rotas Públicas ou Logout
     if pathname == '/logout': return layout_login_principal()
     if pathname == '/' or not pathname: return layout_login_principal()
     
-    # 2. Verificação de Segurança
     if not auth_data or not auth_data.get('is_authenticated'): return layout_login_principal()
 
-    # 3. Rotas Privadas
     if pathname == '/home': return layout_home(auth_data)
     if pathname == '/softwares': return layout_menu_softwares(auth_data)
     if pathname == '/softwares/gerador-lista': return layout_ferramenta_inscricoes()
@@ -131,7 +77,6 @@ def router(pathname, auth_data):
     if pathname == '/documentacoes': return layout_documentacoes()
     if pathname == '/dashboards': return layout_dashboards()
     
-    # 4. Rota Admin
     if pathname == '/gestao/dashboard': 
         return html.Div([layout_dashboard_admin(), componentes_modais_admin()]) if auth_data.get('is_admin') else layout_home(auth_data)
 
@@ -145,23 +90,32 @@ def router(pathname, auth_data):
     [Output('auth-store', 'data', allow_duplicate=True), 
      Output('url', 'pathname', allow_duplicate=True), 
      Output('login-main-alert', 'children')], 
-    Input('btn-login-main', 'n_clicks'), 
+    [Input('btn-login-main', 'n_clicks'),
+     Input('login-main-user', 'n_submit'),
+     Input('login-main-password', 'n_submit')], 
     [State('login-main-user', 'value'), 
      State('login-main-password', 'value')], 
     prevent_initial_call=True
 )
-def realizar_login(n_clicks, username, password):
-    if not n_clicks: return no_update
-    if not username or not password: 
-        return no_update, no_update, dbc.Alert("⚠️ Preencha todos os campos de login.", color="warning")
+def realizar_login(n_clicks, n_submit_user, n_submit_pwd, username, password):
+    # [TRAVA ABSOLUTA] Só executa se o utilizador clicou ou carregou no Enter (> 0)
+    clicou = n_clicks is not None and n_clicks > 0
+    enter_user = n_submit_user is not None and n_submit_user > 0
+    enter_pwd = n_submit_pwd is not None and n_submit_pwd > 0
     
-    dados, erro = autenticar_usuario(username, password)
-    
-    if dados: 
-        session_data = {'id': dados[0], 'nome': dados[1], 'sobrenome': dados[2], 'is_admin': dados[3], 'is_authenticated': True}
-        return session_data, "/home", ""
-    
-    return no_update, no_update, dbc.Alert(erro, color="danger")
+    if clicou or enter_user or enter_pwd:
+        if not username or not password: 
+            return no_update, no_update, dbc.Alert("⚠️ Preencha todos os campos de login.", color="warning")
+        
+        dados, erro = autenticar_usuario(username, password)
+        
+        if dados: 
+            session_data = {'id': dados[0], 'nome': dados[1], 'sobrenome': dados[2], 'is_admin': dados[3], 'is_authenticated': True}
+            return session_data, "/home", ""
+        
+        return no_update, no_update, dbc.Alert(erro, color="danger")
+        
+    return no_update, no_update, no_update
 
 @callback(Output('auth-store', 'data', allow_duplicate=True), Input('url', 'pathname'), prevent_initial_call=True)
 def realizar_logout(path): 
@@ -438,7 +392,6 @@ app.clientside_callback(
 # CALLBACKS: FERRAMENTA DE CONTRATOS (INTEGRAÇÃO REAL E UX)
 # =============================================================================
 
-# --- LOGICA DOS SWITCHES (MUTUAL EXCLUSIVITY) ---
 @callback(
     [Output("sw-docs-todos", "value"), Output("sw-contratos", "value"), Output("sw-financeiro", "value"), Output("sw-beneficios", "value"), Output("sw-riaf", "value")],
     [Input("sw-docs-todos", "value"), Input("sw-contratos", "value"), Input("sw-financeiro", "value"), Input("sw-beneficios", "value"), Input("sw-riaf", "value")],
@@ -487,8 +440,6 @@ def toggle_sem_switches(todos, s1, s2):
         else: return True, False, False
     return no_update, no_update, no_update
 
-
-# Instância Global do Robô (Singleton)
 robo_contratos = AutomacaoContratos()
 
 @callback(
@@ -498,16 +449,13 @@ robo_contratos = AutomacaoContratos()
      Output("btn-cancelar-robo", "disabled"),
      Output("btn-salvar-relatorio", "disabled"),
      
-     # Outputs da Barra
      Output("barra-progresso-geral", "value", allow_duplicate=True), 
      Output("barra-progresso-geral", "label", allow_duplicate=True),
      Output("barra-progresso-geral", "color", allow_duplicate=True),
      
-     # Output dos Logs (Limpar ao iniciar)
      Output("terminal-logs", "children", allow_duplicate=True)],
     [Input("btn-iniciar-robo", "n_clicks"),
      Input("btn-cancelar-robo", "n_clicks")],
-    # ---> ADICIONADO: States dos novos Switches visuais
     [State("sw-docs-todos", "value"), State("sw-contratos", "value"), State("sw-financeiro", "value"), State("sw-beneficios", "value"), State("sw-riaf", "value"),
      State("sw-ano-todos", "value"), State("sw-ano-2025", "value"), State("sw-ano-2026", "value"),
      State("sw-sem-todos", "value"), State("sw-sem-1", "value"), State("sw-sem-2", "value")],
@@ -516,10 +464,7 @@ robo_contratos = AutomacaoContratos()
 def controlar_execucao_robo(n_iniciar, n_cancelar, d_todos, d_cont, d_fin, d_ben, d_riaf, a_todos, a_25, a_26, s_todos, s_1, s_2):
     ctx_id = ctx.triggered_id
     
-    # 1. INICIAR
     if ctx_id == "btn-iniciar-robo":
-        
-        # --- PREPARAÇÃO DO PACOTE DE OPÇÕES ---
         docs = []
         if d_todos or d_cont: docs.append("CONTRATO")
         if d_todos or d_fin: docs.append("FINANCIAMENTO")
@@ -535,8 +480,6 @@ def controlar_execucao_robo(n_iniciar, n_cancelar, d_todos, d_cont, d_fin, d_ben
         if s_todos or s_2: sems.append("2")
         
         config = {"docs": docs, "anos": anos, "semestres": sems}
-        
-        # Dispara a thread real passando a configuração capturada da tela
         robo_contratos.start(config)
         
         loading_ui = [
@@ -545,23 +488,15 @@ def controlar_execucao_robo(n_iniciar, n_cancelar, d_todos, d_cont, d_fin, d_ben
         ]
         
         return (
-            False, # Intervalo ATIVADO
-            True,  # Btn Iniciar DESATIVADO
-            loading_ui,
-            False, # Btn Cancelar ATIVADO
-            True,  # Btn Salvar DESATIVADO
-            0, "0%", "primary", # Barra Reset
+            False, True, loading_ui, False, True, 0, "0%", "primary", 
             [html.Div(">> Inicializando sistema e aplicando filtros...", style={"color": "#F08EB3"})]
         )
 
-    # 2. CANCELAR
     if ctx_id == "btn-cancelar-robo":
         robo_contratos.stop()
-        # O estado visual será atualizado pelo intervalo na próxima batida
         return no_update
 
     return no_update
-
 
 @callback(
     [Output("barra-progresso-geral", "value"), 
@@ -569,7 +504,6 @@ def controlar_execucao_robo(n_iniciar, n_cancelar, d_todos, d_cont, d_fin, d_ben
      Output("barra-progresso-geral", "color"),
      Output("terminal-logs", "children"),
      
-     # Controles de Estado
      Output("intervalo-simulacao", "disabled", allow_duplicate=True),
      Output("btn-iniciar-robo", "children", allow_duplicate=True),
      Output("btn-iniciar-robo", "disabled", allow_duplicate=True),
@@ -579,7 +513,6 @@ def controlar_execucao_robo(n_iniciar, n_cancelar, d_todos, d_cont, d_fin, d_ben
     prevent_initial_call=True
 )
 def atualizar_status_robo(n):
-    # Pega o estado real do objeto Python
     status = robo_contratos.get_status()
     
     progress = status['progress']
@@ -587,20 +520,14 @@ def atualizar_status_robo(n):
     is_running = status['is_running']
     arquivo_pronto = status['arquivo_gerado']
     
-    # Renderiza Logs HTML
     log_elements = []
     for log in logs_data:
         log_elements.append(html.Div(
             html.Span(log['msg'], style={"color": log['color'], "fontFamily": "Consolas"})
         ))
     
-    # Se ainda estiver rodando
     if is_running:
-        return (
-            progress, f"{progress}%", "", log_elements, no_update, no_update, no_update, no_update, no_update
-        )
-    
-    # SE TERMINOU (Sucesso ou Erro)
+        return (progress, f"{progress}%", "", log_elements, no_update, no_update, no_update, no_update, no_update)
     else:
         cor_final = "success" if status['status_final'] == 'success' else "danger"
         btn_label = [DashIconify(icon="lucide:rotate-cw", width=20, className="me-2"), "REINICIAR"]
@@ -610,24 +537,15 @@ def atualizar_status_robo(n):
             "CONCLUÍDO" if status['status_final'] == 'success' else "PARADO", 
             cor_final,
             log_elements,
-            True,   # Intervalo PAUSADO
-            btn_label, 
-            False,  # Btn Iniciar LIBERADO
-            True,   # Btn Cancelar TRAVADO
-            False if arquivo_pronto else True # Btn Baixar LIBERADO se tiver arquivo
+            True, btn_label, False, True, 
+            False if arquivo_pronto else True
         )
 
-# Callback para Abrir o Modal de Download
-@callback(
-    Output("modal-download-contratos", "is_open"),
-    Input("btn-salvar-relatorio", "n_clicks"),
-    prevent_initial_call=True
-)
+@callback(Output("modal-download-contratos", "is_open"), Input("btn-salvar-relatorio", "n_clicks"), prevent_initial_call=True)
 def abrir_modal_download(n):
     if n: return True
     return False
 
-# Callback para os botões dentro do Modal
 @callback(
     Output("download-relatorio-component", "data"),
     Output("modal-download-contratos", "is_open", allow_duplicate=True),
@@ -657,15 +575,16 @@ def baixar_arquivo_selecionado(n_princ, n_comp):
 # MAIN (EXECUÇÃO)
 # =============================================================================
 if __name__ == '__main__':
-    is_wsl = "microsoft" in platform.release().lower() or "wsl" in platform.release().lower()
-    PORT = 8051 if is_wsl else 8085
+    PORT = 8051
     
     if os.environ.get("WERKZEUG_RUN_MAIN") is None:
-        try:
-            configurar_rede_automatica(PORT)
-        except:
-            pass 
+        hostname = os.environ.get("HOST_PC_NAME", "localhost")
+        print("\n" + "="*70)
+        print(f"🚀 INICIANDO PORTAL GGCI | DOCKER CONTAINER ACTIVE")
+        print("-" * 70)
+        print("📢 LINKS DE ACESSO (Copie e envie para a equipa):")
+        print(f"   👉 Pelo Nome da Máquina:   http://{hostname}:{PORT}")
+        print("="*70 + "\n")
 
-    # CORREÇÃO: dev_tools_hot_reload=False e use_reloader=False
-    # Isso impede que a criação dos arquivos ZIP e XLSX reiniciem o servidor e recarreguem a página.
-    app.run(host='0.0.0.0', port=PORT, debug=True, dev_tools_hot_reload=False, use_reloader=False)
+    # EM PRODUÇÃO: debug=False para segurança e performance no Docker
+    app.run(host='0.0.0.0', port=PORT, debug=False, dev_tools_hot_reload=False, use_reloader=False)

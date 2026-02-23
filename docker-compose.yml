@@ -1,64 +1,42 @@
-# =============================================================================
-# ARQUIVO: docker-compose.yml
-# TIPO: Orquestração de Infraestrutura (Infrastructure as Code)
-# =============================================================================
-#
-# O QUE ISSO FAZ?
-# Em vez de cada desenvolvedor ter que instalar o PostgreSQL manualmente no Windows,
-# baixar instaladores, configurar portas e criar usuários, nós usamos este arquivo.
-#
-# COMANDO MÁGICO:
-# Basta rodar `docker-compose up -d` no terminal. 
-# O Docker vai baixar uma imagem pronta, configurar tudo e deixar o banco rodando.
-# =============================================================================
-
-version: '3.8'  # Versão da sintaxe do Docker Compose (Padrão de mercado atual)
+version: '3.8'
 
 services:
-  # --- SERVIÇO DE BANCO DE DADOS (PostgreSQL) ---
+  # --- BANCO DE DADOS POSTGRESQL ---
   db:
-    # IMAGEM: É como um "CD de instalação" virtual. 
-    # Estamos baixando o Linux Alpine com o Postgres 15 já instalado e otimizado.
     image: postgres:15
-    
-    # CONTAINER_NAME: Dá um nome fixo para facilitar comandos como `docker logs ggci_db`
     container_name: ggci_db
-    
-    # VARIÁVEIS DE AMBIENTE (ENV):
-    # Aqui definimos as credenciais iniciais.
-    # ATENÇÃO: Estas credenciais DEVEM bater com o que está no arquivo `src/config.py`.
     environment:
-      POSTGRES_USER: 4dmin_db        # Usuário "root" do banco
-      POSTGRES_PASSWORD: 4dmin_db    # Senha de acesso
-      POSTGRES_DB: ggci_database     # Nome do banco criado automaticamente no start
-    
-    # MAPEAMENTO DE PORTAS (HOST : CONTAINER):
-    # - 5433 (Esquerda): É a porta do SEU computador (Windows/Linux).
-    # - 5432 (Direita): É a porta interna do Container (onde o Postgres "pensa" que está).
-    #
-    # POR QUE 5433? 
-    # Para evitar conflitos caso você já tenha um Postgres instalado localmente na 5432.
+      POSTGRES_USER: 4dmin_db
+      POSTGRES_PASSWORD: 4dmin_db
+      POSTGRES_DB: ggci_database
     ports:
       - "5433:5432"
-    
-    # VOLUMES (PERSISTÊNCIA DE DADOS):
-    # Containers são "efêmeros" (se deletar o container, os dados somem).
-    # Os volumes servem para salvar os arquivos fora do container.
     volumes:
-      # 1. BIND MOUNT (Script de Inicialização):
-      # Pega o arquivo init.sql da sua pasta local e joga para dentro do container.
-      # O Postgres executa automaticamente qualquer .sql nesta pasta APENAS na primeira vez.
       - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
-      
-      # 2. NAMED VOLUME (Dados do Banco):
-      # Salva as tabelas e registros em um volume gerenciado pelo Docker.
-      # Garante que seus inserts não sumam se você reiniciar o PC.
       - postgres_data:/var/lib/postgresql/data
-    
-    # RESTART POLICY:
-    # Se o banco cair ou o PC reiniciar, o Docker tenta subir ele de novo automaticamente.
     restart: always
 
-# Definição dos Volumes Gerenciados (vistos acima)
+  # --- APLICAÇÃO PYTHON (WEB + ROBÔ) ---
+  web:
+    build: .
+    container_name: ggci_web
+    ports:
+      - "8051:8051"
+    depends_on:
+      - db
+    environment:
+      # Nome exato da sua máquina para o terminal
+      HOST_PC_NAME: pcdelpo07
+      POSTGRES_DB: ggci_database
+      POSTGRES_USER: 4dmin_db
+      POSTGRES_PASSWORD: 4dmin_db
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+    volumes:
+      - ./exports_semestrais:/app/exports_semestrais
+      - ./relatorio_anual:/app/relatorio_anual
+      - ./rel_pagamentos:/app/rel_pagamentos
+    restart: always
+
 volumes:
   postgres_data:

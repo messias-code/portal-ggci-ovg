@@ -175,7 +175,6 @@ class AutomacaoContratos:
             if not os.path.exists(pasta_rel): os.makedirs(pasta_rel, exist_ok=True)
 
     def _limpar_conteudo_pasta(self, pasta):
-        """Limpa o CONTEÚDO das pastas sem deletar a pasta raiz, evitando falhas de cache de diretório do Windows."""
         if os.path.exists(pasta):
             for filename in os.listdir(pasta):
                 filepath = os.path.join(pasta, filename)
@@ -227,7 +226,6 @@ class AutomacaoContratos:
             ano_int = int(ano)
             for sem in sems_selecionados:
                 sem_int = int(sem)
-                # Bloqueio de Anos Futuros e Semestres Indisponíveis
                 if ano_int > ano_atual: continue
                 if ano_int == ano_atual and sem_int == 2 and mes_atual < 8: continue
                 
@@ -263,10 +261,6 @@ class AutomacaoContratos:
             time.sleep(1.0) 
             self._garantir_pastas()
             
-            # =========================================================================
-            # [SENIOR FIX] CHECK PRÉ-VOO (Fast-Fail Global)
-            # Evita rodar financeiro e consolidação se não houver NENHUM doc válido selecionado.
-            # =========================================================================
             tarefas_reais = 0
             for dados in self.semestres_ativos:
                 ano_int = int(dados['label'].split('-')[0])
@@ -359,7 +353,6 @@ class AutomacaoContratos:
         ano_str = nome.split('-')[0]
         ano_int = int(ano_str) if ano_str.isdigit() else 2025
         
-        # Filtra logo de cara o que é válido para não gastar tempo abrindo o Chrome
         docs_para_baixar = []
         for doc in self.docs_ativos:
             if doc['id'] == 'RIAF' and ano_int < 2026:
@@ -368,7 +361,6 @@ class AutomacaoContratos:
             docs_para_baixar.append(doc)
             
         if not docs_para_baixar:
-            # Não faz log extra aqui, já avisou acima. Sai limpo.
             self.update_progress(10)
             return True
 
@@ -418,6 +410,11 @@ class AutomacaoContratos:
         options.add_argument('--unsafely-treat-insecure-origin-as-secure=http://10.237.1.11')
         options.add_argument("--disable-blink-features=AutomationControlled") 
         options.add_argument("--log-level=3")
+        
+        # --- DOCKER FLAGS: Essenciais para não dar Crash no Chrome do Container ---
+        options.add_argument("--no-sandbox")
+        options.add_argument("--disable-dev-shm-usage")
+        options.add_argument("--disable-gpu")
         
         prefs = {
             "download.default_directory": os.path.abspath(pasta_temp_thread),
@@ -606,6 +603,11 @@ class AutomacaoContratos:
             opcoes.add_argument("--disable-blink-features=AutomationControlled") 
             opcoes.add_experimental_option("excludeSwitches", ["enable-automation"])
 
+            # --- DOCKER FLAGS: Essenciais para não dar Crash no Chrome do Container ---
+            opcoes.add_argument("--no-sandbox")
+            opcoes.add_argument("--disable-dev-shm-usage")
+            opcoes.add_argument("--disable-gpu")
+
             uid_pasta = str(int(time.time() * 1000))[-6:]
             pasta_temp_pgto_local = os.path.join(DIR_RELATORIO_PAGAMENTOS, f"temp_pgto_{uid_pasta}")
             os.makedirs(pasta_temp_pgto_local, exist_ok=True)
@@ -662,7 +664,7 @@ class AutomacaoContratos:
                 ano_int = int(ano)
                 if ano_int > ano_atual: continue
                 f_path = os.path.join(DIR_RELATORIO_PAGAMENTOS, ano)
-
+                
                 for m in range(1, 13):
                     if self.stop_event.is_set(): break
                     if ano_int == ano_atual and m >= mes_atual: break 
