@@ -505,10 +505,8 @@ class AutomacaoContratos:
 
                 if not btn_baixar: raise Exception("Botão de baixar não apareceu no tempo limite.")
 
-                # [SENIOR FIX] Pausa para o Event Binding: ScriptCase precisa de tempo para acoplar a função de download
                 time.sleep(1.5) 
                 
-                # Tenta o clique nativo primeiro (garante ativação de eventos JS)
                 try:
                     btn_baixar.click()
                 except:
@@ -525,7 +523,6 @@ class AutomacaoContratos:
                         arquivo_encontrado = os.path.join(pasta_temp_thread, validos[0])
                         break
                     
-                    # [SENIOR FIX] Gatilho de Resiliência: Se após 15s o arquivo nem começou a baixar, ele repete o clique!
                     if checagem == 15 and len(arquivos) == 0:
                         try: driver.execute_script("arguments[0].click();", btn_baixar)
                         except: pass
@@ -571,7 +568,9 @@ class AutomacaoContratos:
         pasta_temp_pgto_local = None
         try:
             if self.stop_event.is_set(): return
-            self.log("⚙️ [Base Auxiliar] Acessando sistema financeiro...", "cyan")
+            
+            # [SENIOR FIX] LOG LIMPO: O financeiro é o cérebro (memória), ele baixa calado.
+            self.log("⚙️ [Base Auxiliar] Sincronizando histórico financeiro completo...", "gray")
             self.update_progress(2)
             
             ua = UserAgent()
@@ -626,8 +625,9 @@ class AutomacaoContratos:
             rel_pgto = '//*[@id="cssmenu"]/ul/li[1]/ul/li[2]/a'        
             WebDriverWait(driver, 10).until(EC.element_to_be_clickable((By.XPATH, rel_pgto))).click()
             
-            anos = self.anos_ativos
-            for ano in anos:       
+            # [SENIOR FIX] O Financeiro SEMPRE baixa todos os anos para calcular a trajetória corretamente.
+            anos_obrigatorios_financeiro = ['2025', '2026']
+            for ano in anos_obrigatorios_financeiro:       
                 f_path = os.path.join(DIR_RELATORIO_PAGAMENTOS, ano)
                 if not os.path.exists(f_path): os.makedirs(f_path, exist_ok=True)
             
@@ -635,13 +635,11 @@ class AutomacaoContratos:
             ano_atual = hoje.year
             mes_atual = hoje.month
 
-            for ano in anos:
+            for ano in anos_obrigatorios_financeiro:
                 if self.stop_event.is_set(): break
                 ano_int = int(ano)
                 if ano_int > ano_atual: continue
                 f_path = os.path.join(DIR_RELATORIO_PAGAMENTOS, ano)
-
-                self.log(f"⚙️ [Base Auxiliar] Processando pacotes de {ano}...", "gray")
                 
                 for m in range(1, 13):
                     if self.stop_event.is_set(): break
@@ -687,13 +685,13 @@ class AutomacaoContratos:
             matar_driver_forca_bruta(driver)
             driver = None
 
-            self.log("📋 [Base Auxiliar] Consolidando dados...", "#FFCE54")
+            self.log("📋 [Base Auxiliar] Consolidando inteligência financeira...", "#FFCE54")
             caminho_consolidada = os.path.join(DIR_RELATORIO_PAGAMENTOS, "consolidada")
             if not os.path.exists(caminho_consolidada): os.makedirs(caminho_consolidada, exist_ok=True)
             
             lista_dfs = []
             arquivos_totais = []
-            for ano in anos:
+            for ano in anos_obrigatorios_financeiro:
                 c_ano = os.path.join(DIR_RELATORIO_PAGAMENTOS, ano)
                 if os.path.exists(c_ano):
                     arquivos_totais.extend([os.path.join(c_ano, f) for f in os.listdir(c_ano) if f.endswith('.xls')])
@@ -737,7 +735,7 @@ class AutomacaoContratos:
                     df_u.to_excel(writer, sheet_name='rel_pagamentos', index=False)
                 
                 self.update_progress(1.6)
-                self.log("✅ [Base Auxiliar] Relatórios financeiros processados.", "#A0D468")
+                self.log("✅ [Base Auxiliar] Trajetória financeira sincronizada.", "#A0D468")
 
         except Exception as e:
             if self.stop_event.is_set():
@@ -844,7 +842,12 @@ class AutomacaoContratos:
                 map_flag_ies = df_pag.drop_duplicates('KEY_STR', keep='last').set_index('KEY_STR')['FLAG_IES'].to_dict()
                 map_ant_ies = df_pag.drop_duplicates('KEY_STR', keep='last').set_index('KEY_STR')['ANT_IES'].to_dict()
                 
-                inscricoes_2026 = set(df_pag[df_pag['SEMESTRE'].astype(str).str.startswith('2026')]['K_ID'])
+                # [SENIOR FIX] Vínculo Ativo sempre verifica o ano vigente (atual) de forma dinâmica.
+                ano_atual_str = str(datetime.datetime.now().year)
+                inscricoes_ativas = set(df_pag[df_pag['SEMESTRE'].astype(str).str.startswith(ano_atual_str)]['K_ID'])
+                if not inscricoes_ativas:
+                    ano_anterior_str = str(datetime.datetime.now().year - 1)
+                    inscricoes_ativas = set(df_pag[df_pag['SEMESTRE'].astype(str).str.startswith(ano_anterior_str)]['K_ID'])
 
                 df_pag_unique = df_pag.drop_duplicates(subset=['K_ID', 'K_SEM'], keep='last')
                 mapa_ies_correcao = dict(zip(zip(df_pag_unique['K_ID'], df_pag_unique['K_SEM']), df_pag_unique['INS_NOME']))
@@ -863,7 +866,7 @@ class AutomacaoContratos:
                     df_target['IES Anterior'] = temp_key.map(map_ant_ies).fillna("-")
                     df_target['Mudou Bolsa?'] = temp_key.map(map_flag_bolsa).fillna("NÃO")
                     df_target['Bolsa Anterior'] = temp_key.map(map_ant_bolsa).fillna("-")
-                    df_target['Status Vínculo'] = df_target['Inscrição'].astype(str).apply(lambda x: 'ATIVO' if x in inscricoes_2026 else 'DESLIGADO')
+                    df_target['Status Vínculo'] = df_target['Inscrição'].astype(str).apply(lambda x: 'ATIVO' if x in inscricoes_ativas else 'DESLIGADO')
                     return df_target
 
                 self.log("📝 [ANÁLISE] Estruturando relatórios de pendências e divergências...", "cyan")
@@ -874,6 +877,9 @@ class AutomacaoContratos:
                     'OUTROS_BENEF': 'COMPROVANTE OUTROS BENEFÍCIOS',
                     'RIAF': 'RIAF – RESUMO DE INFORMAÇÕES ACADÊMICAS E FINANCEIRAS'
                 }
+
+                # [SENIOR FIX] Impede que semestres não solicitados entrem no arquivo final
+                semestres_validos = [s['label'].replace('-', '/') for s in self.semestres_ativos]
 
                 for doc_type in tipos_ativos:
                     df_atual = dict_raw_dfs.get(doc_type, pd.DataFrame())
@@ -912,6 +918,7 @@ class AutomacaoContratos:
                         df_pag_diff['KEY_DIV'] = df_pag_diff['K_ID'] + "_" + df_pag_diff['K_CPF_DIV'] + "_" + df_pag_diff['INS_NOME'] + "_" + df_pag_diff['K_SEM']
                         
                         df_diff_div = df_pag_diff[~df_pag_diff['KEY_DIV'].isin(set_atual_div)].copy()
+                        df_diff_div = df_diff_div[df_diff_div['SEMESTRE'].isin(semestres_validos)] # Filtro Forte
                         
                         if doc_type == 'RIAF':
                             df_diff_div = df_diff_div[df_diff_div['SEMESTRE'].astype(str).str[:4] >= '2026']
@@ -946,6 +953,7 @@ class AutomacaoContratos:
                         atual_existentes = set(df_atual['KEY_EXISTENCIA'])
                         
                         df_diff = df_pag[~df_pag['KEY_STR'].isin(atual_existentes)].copy()
+                        df_diff = df_diff[df_diff['SEMESTRE'].isin(semestres_validos)] # Filtro Forte
                         
                         if doc_type == 'RIAF':
                             df_diff = df_diff[df_diff['SEMESTRE'].astype(str).str[:4] >= '2026']
@@ -1075,7 +1083,10 @@ class AutomacaoContratos:
         if df.empty: return df
         df['uni_codigo'] = df['uni_codigo'].astype(str).str.strip()
         col_id, col_semestre = 'uni_codigo', 'semestre'
-        semestres_obrigatorios = ['2025/1', '2025/2', '2026/1'] 
+        
+        # O esqueleto SQL deve cobrir EXATAMENTE o que o usuário escolheu
+        semestres_obrigatorios = [s['label'].replace('-', '/') for s in self.semestres_ativos]
+        if not semestres_obrigatorios: return df
         
         alunos_unicos = df[col_id].unique()
         index = pd.MultiIndex.from_product([alunos_unicos, semestres_obrigatorios], names=[col_id, col_semestre])
