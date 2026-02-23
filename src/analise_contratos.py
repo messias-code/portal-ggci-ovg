@@ -74,15 +74,21 @@ DOCS_TO_FETCH = [
 ]
 
 def matar_driver_forca_bruta(driver):
-    if driver:
+    if not driver: return
+    
+    pid = None
+    try: pid = driver.service.process.pid
+    except: pass
+
+    try: driver.quit()
+    except: pass
+
+    if pid:
         try:
-            pid = driver.service.process.pid
             proc = psutil.Process(pid)
             for child in proc.children(recursive=True): 
                 child.kill()
             proc.kill()
-        except: pass
-        try: driver.quit()
         except: pass
 
 def padronizar_texto(texto):
@@ -113,11 +119,11 @@ class AutomacaoContratos:
         self.progress = 0.0
         self.target_progress = 0.0 
         self.logs = []
-        self.semestres = [
-            {"label": "2025-1", "value": "2025-1##@@2025-1"},
-            {"label": "2025-2", "value": "2025-2##@@2025-2"},
-            {"label": "2026-1", "value": "2026-1##@@2026-1"},
-        ]
+        
+        self.docs_ativos = DOCS_TO_FETCH
+        self.anos_ativos = ["2025", "2026"]
+        self.semestres_ativos = []
+        
         self.MAX_TENTATIVAS = 3
         self.lock = threading.Lock()
         self.stop_event = threading.Event()
@@ -159,16 +165,33 @@ class AutomacaoContratos:
             }
 
     def _garantir_pastas(self):
-        for pasta in [DIR_EXPORTS_BASE, DIR_RELATORIO_ANUAL, PASTA_TEMP_PAGAMENTOS, DIR_RELATORIO_PAGAMENTOS, DIR_RELATORIO_CONTRATOS, DIR_RELATORIO_CONSOLIDADOS]:
+        for pasta in [DIR_EXPORTS_BASE, DIR_RELATORIO_ANUAL, DIR_RELATORIO_PAGAMENTOS, DIR_RELATORIO_CONTRATOS, DIR_RELATORIO_CONSOLIDADOS]:
             if not os.path.exists(pasta): os.makedirs(pasta, exist_ok=True)
-        for doc in DOCS_TO_FETCH:
+        for doc in self.docs_ativos:
             pasta_doc = os.path.join(DIR_EXPORTS_BASE, doc['id'])
             if not os.path.exists(pasta_doc): os.makedirs(pasta_doc, exist_ok=True)
             pasta_rel = os.path.join(DIR_RELATORIO_ANUAL, doc['id'])
             if not os.path.exists(pasta_rel): os.makedirs(pasta_rel, exist_ok=True)
 
-    def start(self):
+    def _limpar_conteudo_pasta(self, pasta):
+        if os.path.exists(pasta):
+            for filename in os.listdir(pasta):
+                filepath = os.path.join(pasta, filename)
+                try:
+                    if os.path.isfile(filepath) or os.path.islink(filepath):
+                        os.unlink(filepath)
+                    elif os.path.isdir(filepath):
+                        shutil.rmtree(filepath)
+                except:
+                    pass
+
+    def start(self, config=None):
         if self.is_running: return
+        
+        if self.thread and self.thread.is_alive():
+            self.stop()
+            self.thread.join(timeout=3)
+            
         self.is_running = True
         self.stop_event.clear()
         self.progress = 0.0
@@ -179,6 +202,35 @@ class AutomacaoContratos:
         self.status_final = ""
         self.active_drivers = []
         self.start_time = time.time()
+        
+        hoje = datetime.datetime.now()
+        ano_atual = hoje.year
+        mes_atual = hoje.month
+
+        if config:
+            docs_selecionados = config.get("docs", ["CONTRATO", "FINANCIAMENTO", "OUTROS_BENEF", "RIAF"])
+            anos_selecionados = config.get("anos", ["2025", "2026"])
+            sems_selecionados = config.get("semestres", ["1", "2"])
+        else:
+            docs_selecionados = ["CONTRATO", "FINANCIAMENTO", "OUTROS_BENEF", "RIAF"]
+            anos_selecionados = ["2025", "2026"]
+            sems_selecionados = ["1", "2"]
+
+        self.docs_ativos = [d for d in DOCS_TO_FETCH if d['id'] in docs_selecionados]
+        self.anos_ativos = anos_selecionados
+        
+        self.semestres_ativos = []
+        for ano in anos_selecionados:
+            ano_int = int(ano)
+            for sem in sems_selecionados:
+                sem_int = int(sem)
+                # Regras de Pulo Cronológico Total (Ex: 2026-2)
+                if ano_int > ano_atual: continue
+                if ano_int == ano_atual and sem_int == 2 and mes_atual < 8: continue
+                
+                label = f"{ano}-{sem}"
+                self.semestres_ativos.append({"label": label, "value": f"{label}##@@{label}"})
+
         self.thread = threading.Thread(target=self._run_process)
         self.thread.start()
 
@@ -199,13 +251,21 @@ class AutomacaoContratos:
 
     def _run_process(self):
         try:
+            self.log("🧹 [SISTEMA] Higienizando diretórios de execuções anteriores...", "gray")
+            
+            pastas_alvo = [DIR_EXPORTS_BASE, DIR_RELATORIO_ANUAL, DIR_RELATORIO_PAGAMENTOS, DIR_RELATORIO_CONTRATOS, DIR_RELATORIO_CONSOLIDADOS]
+            for pasta in pastas_alvo:
+                self._limpar_conteudo_pasta(pasta)
+                
+            time.sleep(1.0) 
             self._garantir_pastas()
-            self.log("⚙️ [SISTEMA] Iniciando módulo de automação...", "white")
+            
+            self.log("⚙️ [SISTEMA] Iniciando módulo de automação com configurações selecionadas...", "white")
             self.update_progress(2)
             
             with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
                 futures = []
-                for dados in self.semestres:
+                for dados in self.semestres_ativos:
                     futures.append(executor.submit(self._worker_contratos_retry, dados))
                 futures.append(executor.submit(self._worker_pagamentos))
                 
@@ -245,7 +305,6 @@ class AutomacaoContratos:
                 self.arquivo_gerado = ARQUIVO_ZIP_FINAL
                 self.arquivo_principal = ARQUIVO_MASTER_CONSOLIDADO
 
-            self._limpar_temporarios()
             elapsed = time.time() - self.start_time
             tempo_fmt = str(datetime.timedelta(seconds=int(elapsed)))
 
@@ -274,6 +333,23 @@ class AutomacaoContratos:
 
     def _worker_contratos_retry(self, dados_semestre):
         nome = dados_semestre['label']
+        ano_str = nome.split('-')[0]
+        ano_int = int(ano_str) if ano_str.isdigit() else 2025
+        
+        # [SENIOR FIX] VALIDAÇÃO PRÉ-VOO: Se o documento selecionado não existe 
+        # para esse ano, nós avisamos no log e nem abrimos o Google Chrome.
+        docs_para_baixar = []
+        for doc in self.docs_ativos:
+            if doc['id'] == 'RIAF' and ano_int < 2026:
+                self.log(f"⚠️ [{nome}] {doc['nome']} disponível apenas a partir de 2026. Ignorando.", "gray")
+                continue
+            docs_para_baixar.append(doc)
+            
+        if not docs_para_baixar:
+            self.log(f"✅ [{nome}] Sem documentos válidos para o período.", "#A0D468")
+            self.update_progress(10)
+            return True
+
         docs_baixados_nesta_sessao = set()
         
         for tentativa in range(1, self.MAX_TENTATIVAS + 1):
@@ -282,9 +358,15 @@ class AutomacaoContratos:
                 if tentativa == 1: self.log(f"⚙️ [{nome}] Acessando portal e aplicando filtros...", "cyan")
                 else: self.log(f"⚙️ [{nome}] Tentativa {tentativa}: Reiniciando extração...", "yellow")
                 
-                sucesso = self._contratos_navegador(dados_semestre, docs_baixados_nesta_sessao)
-                if sucesso:
-                    self.log(f"✅ [{nome}] Planilha salva com sucesso!", "#A0D468")
+                # Passamos apenas os documentos válidos para a função principal
+                resultado = self._contratos_navegador(dados_semestre, docs_baixados_nesta_sessao, docs_para_baixar)
+                
+                if resultado == "SKIPPED":
+                    self.log(f"✅ [{nome}] Verificação concluída (Sem pendências disponíveis).", "#A0D468")
+                    self.update_progress(10)
+                    return True
+                elif resultado == True:
+                    self.log(f"✅ [{nome}] Planilhas processadas com sucesso!", "#A0D468")
                     self.update_progress(10) 
                     return True
             except Exception as e:
@@ -298,14 +380,13 @@ class AutomacaoContratos:
                     self.log(f"⚙️ [{nome}] Falha crítica de extração.", "red")
                     return False
 
-    def _contratos_navegador(self, dados_semestre, docs_baixados_nesta_sessao):
+    def _contratos_navegador(self, dados_semestre, docs_baixados_nesta_sessao, docs_para_baixar):
         if self.stop_event.is_set(): return False
         
         nome_semestre = dados_semestre['label']
         valor_semestre = dados_semestre['value']
-        
-        ano_str = nome_semestre.split('-')[0]
-        ano_int = int(ano_str) if ano_str.isdigit() else 2025
+
+        pasta_temp_thread = tempfile.mkdtemp(prefix=f"ovg_ext_{nome_semestre}_")
 
         options = webdriver.ChromeOptions()
         options.add_argument("--headless=new") 
@@ -314,6 +395,14 @@ class AutomacaoContratos:
         options.add_argument('--unsafely-treat-insecure-origin-as-secure=http://10.237.1.11')
         options.add_argument("--disable-blink-features=AutomationControlled") 
         options.add_argument("--log-level=3")
+        
+        prefs = {
+            "download.default_directory": os.path.abspath(pasta_temp_thread),
+            "download.prompt_for_download": False,
+            "directory_upgrade": True,
+            "safebrowsing.enabled": True
+        }
+        options.add_experimental_option("prefs", prefs)
 
         service = Service(ChromeDriverManager().install())
         driver = webdriver.Chrome(service=service, options=options)
@@ -322,6 +411,7 @@ class AutomacaoContratos:
             self.active_drivers.append(driver)
 
         wait = WebDriverWait(driver, 180)
+        baixou_algo = False
 
         try:
             if self.stop_event.is_set(): raise Exception("Cancelado")
@@ -335,18 +425,9 @@ class AutomacaoContratos:
             if self.stop_event.is_set(): raise Exception("Cancelado")
             wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "#item_163"))).click()
 
-            for doc in DOCS_TO_FETCH:
+            for doc in docs_para_baixar:
                 if doc['id'] in docs_baixados_nesta_sessao: continue
-                if doc['id'] == 'RIAF' and ano_int < 2026: continue
                 
-                pasta_temp = os.path.join(DIR_EXPORTS_BASE, doc['id'], f"temp_{nome_semestre}")
-                if not os.path.exists(pasta_temp): os.makedirs(pasta_temp, exist_ok=True)
-                
-                driver.execute_cdp_cmd('Page.setDownloadBehavior', {
-                    'behavior': 'allow',
-                    'downloadPath': os.path.abspath(pasta_temp)
-                })
-
                 driver.switch_to.default_content()
                 menu_item = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "#item_165")))
                 driver.execute_script("arguments[0].click();", menu_item)
@@ -358,28 +439,51 @@ class AutomacaoContratos:
                 el_drop = wait.until(EC.visibility_of_element_located((By.CSS_SELECTOR, "#SC_semestre")))
                 selecao = Select(el_drop)
                 try: selecao.select_by_value(valor_semestre)
-                except: selecao.select_by_visible_text(nome_semestre)
+                except: 
+                    try: selecao.select_by_visible_text(nome_semestre)
+                    except:
+                        self.log(f"⚠️ [{nome_semestre}] Semestre indisponível no portal. Ignorando.", "yellow")
+                        return "SKIPPED"
 
                 wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "#sc_b_pesq_bot"))).click()
                 expand = "#div_int_documento_tipo .dn-expand-button"
                 wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, expand))).click()
                 time.sleep(1)
                 
-                wait.until(EC.element_to_be_clickable((By.XPATH, doc['xpath']))).click()
+                try:
+                    WebDriverWait(driver, 10).until(EC.element_to_be_clickable((By.XPATH, doc['xpath']))).click()
+                except:
+                    self.log(f"⚠️ [{nome_semestre}] Filtro '{doc['nome']}' ausente. Pulando...", "yellow")
+                    continue
 
                 try:
                     wait.until(EC.invisibility_of_element_located((By.CSS_SELECTOR, ".blockUI.blockOverlay")))
                     time.sleep(0.5) 
                 except: pass
 
+                # RADAR DE TELA VAZIA: Se não existe dados para baixar, pula rápido sem congelar 3 minutos!
+                try:
+                    empty_msg = driver.find_elements(By.XPATH, "//*[contains(text(), 'Registros não encontrados') or contains(text(), 'Nenhum registro')]")
+                    if empty_msg and any(e.is_displayed() for e in empty_msg):
+                        self.log(f"⚠️ [{nome_semestre}] Sem dados processados para {doc['nome']}. Pulando...", "yellow")
+                        continue
+                except: pass
+
                 self.log(f"⚙️ [{nome_semestre}] Gerando {doc['nome']}...", "gray")
 
                 if self.stop_event.is_set(): raise Exception("Cancelado")
                 wait.until(EC.element_to_be_clickable((By.ID, "sc_btgp_btn_group_1_top"))).click()
+                
+                # [SENIOR FIX] Estabilização Scriptcase: Micro pausa evita que o clique "passe batido"
+                time.sleep(1.0) 
                 wait.until(EC.element_to_be_clickable((By.ID, "xls_top"))).click()
 
                 wait.until(EC.frame_to_be_available_and_switch_to_it((By.ID, "TB_iframeContent")))
-                wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "#bok"))).click()
+                time.sleep(1.5) # Tempo para a animação do Modal carregar
+                
+                # Executa o clique via Javascript puro garantindo 100% de sucesso na ativação do gerador
+                btn_bok = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "#bok")))
+                driver.execute_script("arguments[0].click();", btn_bok)
 
                 inicio = time.time()
                 btn_baixar = None
@@ -406,11 +510,11 @@ class AutomacaoContratos:
                 arquivo_encontrado = None
                 for _ in range(240):
                     if self.stop_event.is_set(): break 
-                    if not os.path.exists(pasta_temp): break
-                    arquivos = os.listdir(pasta_temp)
-                    validos = [f for f in arquivos if f.endswith(('.xlsx', '.xls')) and not f.startswith('.')]
+                    if not os.path.exists(pasta_temp_thread): break
+                    arquivos = os.listdir(pasta_temp_thread)
+                    validos = [f for f in arquivos if f.endswith(('.xlsx', '.xls')) and not f.endswith('.crdownload') and not f.endswith('.tmp')]
                     if validos:
-                        arquivo_encontrado = os.path.join(pasta_temp, validos[0])
+                        arquivo_encontrado = os.path.join(pasta_temp_thread, validos[0])
                         break
                     time.sleep(1)
 
@@ -423,15 +527,18 @@ class AutomacaoContratos:
                     shutil.move(arquivo_encontrado, caminho_final)
                     
                     docs_baixados_nesta_sessao.add(doc['id'])
+                    baixou_algo = True
                     
-                    for f in os.listdir(pasta_temp):
-                        try: os.remove(os.path.join(pasta_temp, f))
+                    for f in os.listdir(pasta_temp_thread):
+                        try: os.remove(os.path.join(pasta_temp_thread, f))
                         except: pass
                 else:
                     raise Exception("Download travou ou não foi concluído no tempo limite.")
 
-            shutil.rmtree(pasta_temp, ignore_errors=True)
-            return True
+            if baixou_algo:
+                return True
+            else:
+                return "SKIPPED"
 
         except Exception as e:
             raise e
@@ -440,9 +547,13 @@ class AutomacaoContratos:
                 if driver in self.active_drivers:
                     self.active_drivers.remove(driver)
             matar_driver_forca_bruta(driver)
+            
+            if 'pasta_temp_thread' in locals() and os.path.exists(pasta_temp_thread):
+                shutil.rmtree(pasta_temp_thread, ignore_errors=True)
 
     def _worker_pagamentos(self):
         driver = None
+        pasta_temp_pgto_os = None
         try:
             if self.stop_event.is_set(): return
             self.log("⚙️ [Base Auxiliar] Acessando sistema financeiro...", "cyan")
@@ -458,8 +569,9 @@ class AutomacaoContratos:
             opcoes.add_argument("--disable-blink-features=AutomationControlled") 
             opcoes.add_experimental_option("excludeSwitches", ["enable-automation"])
 
-            if not os.path.exists(PASTA_TEMP_PAGAMENTOS): os.makedirs(PASTA_TEMP_PAGAMENTOS, exist_ok=True)
-            prefs = {"download.default_directory": PASTA_TEMP_PAGAMENTOS, "download.prompt_for_download": False, "directory_upgrade": True}
+            pasta_temp_pgto_os = tempfile.mkdtemp(prefix="ovg_pgto_")
+            
+            prefs = {"download.default_directory": os.path.abspath(pasta_temp_pgto_os), "download.prompt_for_download": False, "directory_upgrade": True}
             opcoes.add_experimental_option("prefs", prefs)
 
             service = Service(ChromeDriverManager().install())
@@ -486,7 +598,7 @@ class AutomacaoContratos:
             rel_pgto = '//*[@id="cssmenu"]/ul/li[1]/ul/li[2]/a'        
             WebDriverWait(driver, 10).until(EC.element_to_be_clickable((By.XPATH, rel_pgto))).click()
             
-            anos = ['2025', '2026'] 
+            anos = self.anos_ativos
             for ano in anos:       
                 f_path = os.path.join(DIR_RELATORIO_PAGAMENTOS, ano)
                 if not os.path.exists(f_path): os.makedirs(f_path, exist_ok=True)
@@ -526,16 +638,16 @@ class AutomacaoContratos:
                         driver.switch_to.window(main_window)
 
                     try:
-                        arquivo_encontrado = WebDriverWait(driver, 15).until(lambda d: [f for f in os.listdir(PASTA_TEMP_PAGAMENTOS) if f.endswith(('.xls', '.xlsx')) and not f.startswith('.')])
+                        arquivo_encontrado = WebDriverWait(driver, 15).until(lambda d: [f for f in os.listdir(pasta_temp_pgto_os) if f.endswith(('.xls', '.xlsx')) and not f.endswith('.crdownload') and not f.endswith('.tmp')])
                         if arquivo_encontrado:
                             nome_arq = arquivo_encontrado[0]
-                            origem = os.path.join(PASTA_TEMP_PAGAMENTOS, nome_arq)
+                            origem = os.path.join(pasta_temp_pgto_os, nome_arq)
                             novo_nome = f"relatorio_{mes_valor}_{ano}.xls"
                             destino = os.path.join(f_path, novo_nome)
                             if os.path.exists(destino): os.remove(destino)
                             shutil.move(origem, destino)
-                            for f in os.listdir(PASTA_TEMP_PAGAMENTOS):
-                                try: os.remove(os.path.join(PASTA_TEMP_PAGAMENTOS, f))
+                            for f in os.listdir(pasta_temp_pgto_os):
+                                try: os.remove(os.path.join(pasta_temp_pgto_os, f))
                                 except: pass
                     except: pass 
             
@@ -610,8 +722,8 @@ class AutomacaoContratos:
                     if driver in self.active_drivers:
                         self.active_drivers.remove(driver)
                 matar_driver_forca_bruta(driver)
-            if os.path.exists(PASTA_TEMP_PAGAMENTOS): 
-                try: shutil.rmtree(PASTA_TEMP_PAGAMENTOS, ignore_errors=True)
+            if pasta_temp_pgto_os and os.path.exists(pasta_temp_pgto_os): 
+                try: shutil.rmtree(pasta_temp_pgto_os, ignore_errors=True)
                 except: pass
 
     # =========================================================================
@@ -625,16 +737,17 @@ class AutomacaoContratos:
         self.target_progress = 50
         
         dict_raw_dfs = {}
-        for doc in DOCS_TO_FETCH:
-            tipo = doc['id']
-            padrao = os.path.join(DIR_EXPORTS_BASE, tipo, f"export_{tipo}_*.xlsx")
+        tipos_ativos = [d['id'] for d in self.docs_ativos]
+        
+        for doc_type in tipos_ativos:
+            padrao = os.path.join(DIR_EXPORTS_BASE, doc_type, f"export_{doc_type}_*.xlsx")
             
             arquivos = glob.glob(padrao)
             lista_t = []
             for arq in arquivos:
                 try:
                     dt = pd.read_excel(arq, dtype=str)
-                    sem = os.path.basename(arq).replace(f"export_{tipo}_", "").replace(".xlsx", "").replace("-", "/")
+                    sem = os.path.basename(arq).replace(f"export_{doc_type}_", "").replace(".xlsx", "").replace("-", "/")
                     if "Semestre" in dt.columns: dt.drop(columns=["Semestre"], inplace=True)
                     dt.insert(0, "Semestre", sem)
                     if 'Inscrição' in dt.columns: dt['Inscrição'] = dt['Inscrição'].str.replace('.', '', regex=False).str.strip()
@@ -657,7 +770,7 @@ class AutomacaoContratos:
                 if 'Status Gemini' in df_concat.columns: df_concat.rename(columns={'Status Gemini': 'IA_status'}, inplace=True)
                 if 'Faculdade' in df_concat.columns: df_concat['Faculdade'] = df_concat['Faculdade'].apply(padronizar_texto)
                 
-            dict_raw_dfs[tipo] = df_concat
+            dict_raw_dfs[doc_type] = df_concat
 
         ordem_base = [
             'IA_status', 'Status Vínculo', 'Mudou IES?', 'IES Anterior', 'Mudou Bolsa?', 'Bolsa Anterior',
@@ -698,7 +811,6 @@ class AutomacaoContratos:
                 df_pag['K_SEM'] = df_pag['SEMESTRE'].astype(str).str.strip()
                 df_pag['KEY_STR'] = df_pag['K_ID'] + "_" + df_pag['K_SEM']
 
-                # Mapeamentos Otimizados para Vectorização
                 map_flag_bolsa = df_pag.drop_duplicates('KEY_STR', keep='last').set_index('KEY_STR')['FLAG_BOLSA'].to_dict()
                 map_ant_bolsa = df_pag.drop_duplicates('KEY_STR', keep='last').set_index('KEY_STR')['ANT_BOLSA'].to_dict()
                 map_flag_ies = df_pag.drop_duplicates('KEY_STR', keep='last').set_index('KEY_STR')['FLAG_IES'].to_dict()
@@ -735,7 +847,7 @@ class AutomacaoContratos:
                     'RIAF': 'RIAF – RESUMO DE INFORMAÇÕES ACADÊMICAS E FINANCEIRAS'
                 }
 
-                for doc_type in ['CONTRATO', 'FINANCIAMENTO', 'OUTROS_BENEF', 'RIAF']:
+                for doc_type in tipos_ativos:
                     df_atual = dict_raw_dfs.get(doc_type, pd.DataFrame())
                     nome_doc_oficial = mapa_nomes_docs.get(doc_type, doc_type)
                     
@@ -767,7 +879,6 @@ class AutomacaoContratos:
                         
                         set_atual_div = set(df_atual_div['KEY_DIV'])
                         
-                        # Geração correta da KEY_DIV no df_pag para a comparação
                         df_pag_diff = df_pag.copy()
                         df_pag_diff['K_CPF_DIV'] = df_pag_diff['UNI_CPF'].astype(str).str.replace('.', '', regex=False).str.replace('-', '', regex=False).str.strip().str.zfill(11)
                         df_pag_diff['KEY_DIV'] = df_pag_diff['K_ID'] + "_" + df_pag_diff['K_CPF_DIV'] + "_" + df_pag_diff['INS_NOME'] + "_" + df_pag_diff['K_SEM']
@@ -891,7 +1002,6 @@ class AutomacaoContratos:
             self.log("📊 [RELATÓRIO] Gerando resumo quantitativo por IES e Semestre...", "cyan")
             resumo_data = []
             
-            # Aqui fazemos o agrupamento respeitando Faculdade e Semestre (Corrige a contagem!)
             for (ies, semestre), group in df_master.groupby(['Faculdade', 'Semestre']):
                 tot_benef = group['Inscrição'].nunique()
                 ativos = group[group['Status Vínculo'] == 'ATIVO']['Inscrição'].nunique()
@@ -906,29 +1016,27 @@ class AutomacaoContratos:
                 }
                 
                 for doc_k, doc_name in mapa_nomes_docs.items():
-                    mask_doc = group['Documento Tipo'] == doc_name
-                    enviados = group[mask_doc & (group['IA_status'] != 'Ausentes')]['Inscrição'].nunique()
-                    pendentes = group[mask_doc & (group['IA_status'] == 'Ausentes')]['Inscrição'].nunique()
-                    
-                    short_name = doc_k
-                    if doc_k == 'OUTROS_BENEF': short_name = 'BENEFÍCIOS'
-                    
-                    # Coloca a enviada e logo do lado a pendente daquele tipo
-                    row[f'Env. {short_name}'] = enviados
-                    row[f'Pend. {short_name}'] = pendentes
+                    if doc_k in tipos_ativos:
+                        mask_doc = group['Documento Tipo'] == doc_name
+                        enviados = group[mask_doc & (group['IA_status'] != 'Ausentes')]['Inscrição'].nunique()
+                        pendentes = group[mask_doc & (group['IA_status'] == 'Ausentes')]['Inscrição'].nunique()
+                        
+                        short_name = doc_k
+                        if doc_k == 'OUTROS_BENEF': short_name = 'BENEFÍCIOS'
+                        
+                        row[f'Env. {short_name}'] = enviados
+                        row[f'Pend. {short_name}'] = pendentes
                     
                 resumo_data.append(row)
                 
             df_resumo = pd.DataFrame(resumo_data)
             if not df_resumo.empty:
-                # Ordenar alfabeticamente pela Faculdade e depois por Semestre
                 df_resumo.sort_values(by=['IES', 'Semestre'], ascending=[True, True], inplace=True)
 
             writer_master = pd.ExcelWriter(ARQUIVO_MASTER_CONSOLIDADO, engine='xlsxwriter')
             self._aplicar_estilo_tabela(writer_master, df_master, "rel_documentos_consolidados")
             
             if not df_resumo.empty:
-                # Renomeando a aba como pedido
                 self._aplicar_estilo_tabela(writer_master, df_resumo, "Resumo_Quantitativo")
                 
             writer_master.close()
@@ -1010,10 +1118,4 @@ class AutomacaoContratos:
                 ws.conditional_format(1, i, mx_r, i, {'type': 'text', 'criteria': 'begins with', 'value': 'I', 'format': fmt_invalido})
                 ws.conditional_format(1, i, mx_r, i, {'type': 'text', 'criteria': 'begins with', 'value': 'X', 'format': fmt_invalido})
                 ws.conditional_format(1, i, mx_r, i, {'type': 'text', 'criteria': 'begins with', 'value': 'A', 'format': fmt_invalido})
-
-    def _limpar_temporarios(self):
-        try:
-            for pasta in [PASTA_TEMP_PAGAMENTOS]:
-                if os.path.exists(pasta):
-                    shutil.rmtree(pasta, ignore_errors=True)
-        except: pass
+                

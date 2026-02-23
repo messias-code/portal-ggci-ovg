@@ -507,15 +507,37 @@ robo_contratos = AutomacaoContratos()
      Output("terminal-logs", "children", allow_duplicate=True)],
     [Input("btn-iniciar-robo", "n_clicks"),
      Input("btn-cancelar-robo", "n_clicks")],
+    # ---> ADICIONADO: States dos novos Switches visuais
+    [State("sw-docs-todos", "value"), State("sw-contratos", "value"), State("sw-financeiro", "value"), State("sw-beneficios", "value"), State("sw-riaf", "value"),
+     State("sw-ano-todos", "value"), State("sw-ano-2025", "value"), State("sw-ano-2026", "value"),
+     State("sw-sem-todos", "value"), State("sw-sem-1", "value"), State("sw-sem-2", "value")],
     prevent_initial_call=True
 )
-def controlar_execucao_robo(n_iniciar, n_cancelar):
+def controlar_execucao_robo(n_iniciar, n_cancelar, d_todos, d_cont, d_fin, d_ben, d_riaf, a_todos, a_25, a_26, s_todos, s_1, s_2):
     ctx_id = ctx.triggered_id
     
     # 1. INICIAR
     if ctx_id == "btn-iniciar-robo":
-        # Dispara a thread real
-        robo_contratos.start()
+        
+        # --- PREPARAÇÃO DO PACOTE DE OPÇÕES ---
+        docs = []
+        if d_todos or d_cont: docs.append("CONTRATO")
+        if d_todos or d_fin: docs.append("FINANCIAMENTO")
+        if d_todos or d_ben: docs.append("OUTROS_BENEF")
+        if d_todos or d_riaf: docs.append("RIAF")
+        
+        anos = []
+        if a_todos or a_25: anos.append("2025")
+        if a_todos or a_26: anos.append("2026")
+        
+        sems = []
+        if s_todos or s_1: sems.append("1")
+        if s_todos or s_2: sems.append("2")
+        
+        config = {"docs": docs, "anos": anos, "semestres": sems}
+        
+        # Dispara a thread real passando a configuração capturada da tela
+        robo_contratos.start(config)
         
         loading_ui = [
             DashIconify(icon="line-md:loading-loop", width=22, color="white", className="me-2"),
@@ -529,7 +551,7 @@ def controlar_execucao_robo(n_iniciar, n_cancelar):
             False, # Btn Cancelar ATIVADO
             True,  # Btn Salvar DESATIVADO
             0, "0%", "primary", # Barra Reset
-            [html.Div(">> Inicializando sistema...", style={"color": "#F08EB3"})]
+            [html.Div(">> Inicializando sistema e aplicando filtros...", style={"color": "#F08EB3"})]
         )
 
     # 2. CANCELAR
