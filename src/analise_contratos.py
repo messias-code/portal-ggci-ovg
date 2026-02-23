@@ -224,7 +224,6 @@ class AutomacaoContratos:
             ano_int = int(ano)
             for sem in sems_selecionados:
                 sem_int = int(sem)
-                # Regras de Pulo Cronológico Total (Ex: 2026-2)
                 if ano_int > ano_atual: continue
                 if ano_int == ano_atual and sem_int == 2 and mes_atual < 8: continue
                 
@@ -336,8 +335,6 @@ class AutomacaoContratos:
         ano_str = nome.split('-')[0]
         ano_int = int(ano_str) if ano_str.isdigit() else 2025
         
-        # [SENIOR FIX] VALIDAÇÃO PRÉ-VOO: Se o documento selecionado não existe 
-        # para esse ano, nós avisamos no log e nem abrimos o Google Chrome.
         docs_para_baixar = []
         for doc in self.docs_ativos:
             if doc['id'] == 'RIAF' and ano_int < 2026:
@@ -358,11 +355,10 @@ class AutomacaoContratos:
                 if tentativa == 1: self.log(f"⚙️ [{nome}] Acessando portal e aplicando filtros...", "cyan")
                 else: self.log(f"⚙️ [{nome}] Tentativa {tentativa}: Reiniciando extração...", "yellow")
                 
-                # Passamos apenas os documentos válidos para a função principal
                 resultado = self._contratos_navegador(dados_semestre, docs_baixados_nesta_sessao, docs_para_baixar)
                 
                 if resultado == "SKIPPED":
-                    self.log(f"✅ [{nome}] Verificação concluída (Sem pendências disponíveis).", "#A0D468")
+                    self.log(f"✅ [{nome}] Verificação concluída (Sem dados na base).", "#A0D468")
                     self.update_progress(10)
                     return True
                 elif resultado == True:
@@ -386,7 +382,9 @@ class AutomacaoContratos:
         nome_semestre = dados_semestre['label']
         valor_semestre = dados_semestre['value']
 
-        pasta_temp_thread = tempfile.mkdtemp(prefix=f"ovg_ext_{nome_semestre}_")
+        uid_pasta = str(int(time.time() * 1000))[-6:]
+        pasta_temp_thread = os.path.join(DIR_EXPORTS_BASE, f"temp_ext_{nome_semestre}_{uid_pasta}")
+        os.makedirs(pasta_temp_thread, exist_ok=True)
 
         options = webdriver.ChromeOptions()
         options.add_argument("--headless=new") 
@@ -400,12 +398,18 @@ class AutomacaoContratos:
             "download.default_directory": os.path.abspath(pasta_temp_thread),
             "download.prompt_for_download": False,
             "directory_upgrade": True,
-            "safebrowsing.enabled": True
+            "safebrowsing.enabled": False, 
+            "safebrowsing.disable_download_protection": True
         }
         options.add_experimental_option("prefs", prefs)
 
         service = Service(ChromeDriverManager().install())
         driver = webdriver.Chrome(service=service, options=options)
+        
+        driver.execute_cdp_cmd('Page.setDownloadBehavior', {
+            'behavior': 'allow',
+            'downloadPath': os.path.abspath(pasta_temp_thread)
+        })
         
         with self.lock:
             self.active_drivers.append(driver)
@@ -461,7 +465,6 @@ class AutomacaoContratos:
                     time.sleep(0.5) 
                 except: pass
 
-                # RADAR DE TELA VAZIA: Se não existe dados para baixar, pula rápido sem congelar 3 minutos!
                 try:
                     empty_msg = driver.find_elements(By.XPATH, "//*[contains(text(), 'Registros não encontrados') or contains(text(), 'Nenhum registro')]")
                     if empty_msg and any(e.is_displayed() for e in empty_msg):
@@ -473,15 +476,12 @@ class AutomacaoContratos:
 
                 if self.stop_event.is_set(): raise Exception("Cancelado")
                 wait.until(EC.element_to_be_clickable((By.ID, "sc_btgp_btn_group_1_top"))).click()
-                
-                # [SENIOR FIX] Estabilização Scriptcase: Micro pausa evita que o clique "passe batido"
-                time.sleep(1.0) 
+                time.sleep(0.5)
                 wait.until(EC.element_to_be_clickable((By.ID, "xls_top"))).click()
 
                 wait.until(EC.frame_to_be_available_and_switch_to_it((By.ID, "TB_iframeContent")))
-                time.sleep(1.5) # Tempo para a animação do Modal carregar
+                time.sleep(1) 
                 
-                # Executa o clique via Javascript puro garantindo 100% de sucesso na ativação do gerador
                 btn_bok = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "#bok")))
                 driver.execute_script("arguments[0].click();", btn_bok)
 
@@ -505,17 +505,31 @@ class AutomacaoContratos:
 
                 if not btn_baixar: raise Exception("Botão de baixar não apareceu no tempo limite.")
 
-                driver.execute_script("arguments[0].click();", btn_baixar)
+                # [SENIOR FIX] Pausa para o Event Binding: ScriptCase precisa de tempo para acoplar a função de download
+                time.sleep(1.5) 
+                
+                # Tenta o clique nativo primeiro (garante ativação de eventos JS)
+                try:
+                    btn_baixar.click()
+                except:
+                    driver.execute_script("arguments[0].click();", btn_baixar)
                 
                 arquivo_encontrado = None
-                for _ in range(240):
+                for checagem in range(240):
                     if self.stop_event.is_set(): break 
                     if not os.path.exists(pasta_temp_thread): break
                     arquivos = os.listdir(pasta_temp_thread)
+                    
                     validos = [f for f in arquivos if f.endswith(('.xlsx', '.xls')) and not f.endswith('.crdownload') and not f.endswith('.tmp')]
                     if validos:
                         arquivo_encontrado = os.path.join(pasta_temp_thread, validos[0])
                         break
+                    
+                    # [SENIOR FIX] Gatilho de Resiliência: Se após 15s o arquivo nem começou a baixar, ele repete o clique!
+                    if checagem == 15 and len(arquivos) == 0:
+                        try: driver.execute_script("arguments[0].click();", btn_baixar)
+                        except: pass
+
                     time.sleep(1)
 
                 if arquivo_encontrado:
@@ -549,11 +563,12 @@ class AutomacaoContratos:
             matar_driver_forca_bruta(driver)
             
             if 'pasta_temp_thread' in locals() and os.path.exists(pasta_temp_thread):
-                shutil.rmtree(pasta_temp_thread, ignore_errors=True)
+                try: shutil.rmtree(pasta_temp_thread, ignore_errors=True)
+                except: pass
 
     def _worker_pagamentos(self):
         driver = None
-        pasta_temp_pgto_os = None
+        pasta_temp_pgto_local = None
         try:
             if self.stop_event.is_set(): return
             self.log("⚙️ [Base Auxiliar] Acessando sistema financeiro...", "cyan")
@@ -569,13 +584,26 @@ class AutomacaoContratos:
             opcoes.add_argument("--disable-blink-features=AutomationControlled") 
             opcoes.add_experimental_option("excludeSwitches", ["enable-automation"])
 
-            pasta_temp_pgto_os = tempfile.mkdtemp(prefix="ovg_pgto_")
+            uid_pasta = str(int(time.time() * 1000))[-6:]
+            pasta_temp_pgto_local = os.path.join(DIR_RELATORIO_PAGAMENTOS, f"temp_pgto_{uid_pasta}")
+            os.makedirs(pasta_temp_pgto_local, exist_ok=True)
             
-            prefs = {"download.default_directory": os.path.abspath(pasta_temp_pgto_os), "download.prompt_for_download": False, "directory_upgrade": True}
+            prefs = {
+                "download.default_directory": os.path.abspath(pasta_temp_pgto_local), 
+                "download.prompt_for_download": False, 
+                "directory_upgrade": True,
+                "safebrowsing.enabled": False,
+                "safebrowsing.disable_download_protection": True
+            }
             opcoes.add_experimental_option("prefs", prefs)
 
             service = Service(ChromeDriverManager().install())
             driver = webdriver.Chrome(service=service, options=opcoes)
+            
+            driver.execute_cdp_cmd('Page.setDownloadBehavior', {
+                'behavior': 'allow',
+                'downloadPath': os.path.abspath(pasta_temp_pgto_local)
+            })
             
             with self.lock:
                 self.active_drivers.append(driver)
@@ -613,7 +641,7 @@ class AutomacaoContratos:
                 if ano_int > ano_atual: continue
                 f_path = os.path.join(DIR_RELATORIO_PAGAMENTOS, ano)
 
-                self.log(f"⚙️ [Base Auxiliar] Processando e baixando pacotes de {ano}...", "gray")
+                self.log(f"⚙️ [Base Auxiliar] Processando pacotes de {ano}...", "gray")
                 
                 for m in range(1, 13):
                     if self.stop_event.is_set(): break
@@ -638,16 +666,16 @@ class AutomacaoContratos:
                         driver.switch_to.window(main_window)
 
                     try:
-                        arquivo_encontrado = WebDriverWait(driver, 15).until(lambda d: [f for f in os.listdir(pasta_temp_pgto_os) if f.endswith(('.xls', '.xlsx')) and not f.endswith('.crdownload') and not f.endswith('.tmp')])
+                        arquivo_encontrado = WebDriverWait(driver, 15).until(lambda d: [f for f in os.listdir(pasta_temp_pgto_local) if f.endswith(('.xls', '.xlsx')) and not f.endswith('.crdownload') and not f.endswith('.tmp')])
                         if arquivo_encontrado:
                             nome_arq = arquivo_encontrado[0]
-                            origem = os.path.join(pasta_temp_pgto_os, nome_arq)
+                            origem = os.path.join(pasta_temp_pgto_local, nome_arq)
                             novo_nome = f"relatorio_{mes_valor}_{ano}.xls"
                             destino = os.path.join(f_path, novo_nome)
                             if os.path.exists(destino): os.remove(destino)
                             shutil.move(origem, destino)
-                            for f in os.listdir(pasta_temp_pgto_os):
-                                try: os.remove(os.path.join(pasta_temp_pgto_os, f))
+                            for f in os.listdir(pasta_temp_pgto_local):
+                                try: os.remove(os.path.join(pasta_temp_pgto_local, f))
                                 except: pass
                     except: pass 
             
@@ -722,8 +750,8 @@ class AutomacaoContratos:
                     if driver in self.active_drivers:
                         self.active_drivers.remove(driver)
                 matar_driver_forca_bruta(driver)
-            if pasta_temp_pgto_os and os.path.exists(pasta_temp_pgto_os): 
-                try: shutil.rmtree(pasta_temp_pgto_os, ignore_errors=True)
+            if pasta_temp_pgto_local and os.path.exists(pasta_temp_pgto_local): 
+                try: shutil.rmtree(pasta_temp_pgto_local, ignore_errors=True)
                 except: pass
 
     # =========================================================================
@@ -1118,4 +1146,3 @@ class AutomacaoContratos:
                 ws.conditional_format(1, i, mx_r, i, {'type': 'text', 'criteria': 'begins with', 'value': 'I', 'format': fmt_invalido})
                 ws.conditional_format(1, i, mx_r, i, {'type': 'text', 'criteria': 'begins with', 'value': 'X', 'format': fmt_invalido})
                 ws.conditional_format(1, i, mx_r, i, {'type': 'text', 'criteria': 'begins with', 'value': 'A', 'format': fmt_invalido})
-                
