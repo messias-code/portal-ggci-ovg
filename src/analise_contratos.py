@@ -122,6 +122,7 @@ class AutomacaoContratos:
         
         self.docs_ativos = DOCS_TO_FETCH
         self.anos_ativos = ["2025", "2026"]
+        self.sems_ativos = [] 
         self.semestres_ativos = []
         
         self.MAX_TENTATIVAS = 3
@@ -174,6 +175,7 @@ class AutomacaoContratos:
             if not os.path.exists(pasta_rel): os.makedirs(pasta_rel, exist_ok=True)
 
     def _limpar_conteudo_pasta(self, pasta):
+        """Limpa o CONTEÚDO das pastas sem deletar a pasta raiz, evitando falhas de cache de diretório do Windows."""
         if os.path.exists(pasta):
             for filename in os.listdir(pasta):
                 filepath = os.path.join(pasta, filename)
@@ -218,12 +220,14 @@ class AutomacaoContratos:
 
         self.docs_ativos = [d for d in DOCS_TO_FETCH if d['id'] in docs_selecionados]
         self.anos_ativos = anos_selecionados
+        self.sems_ativos = sems_selecionados
         
         self.semestres_ativos = []
         for ano in anos_selecionados:
             ano_int = int(ano)
             for sem in sems_selecionados:
                 sem_int = int(sem)
+                # Bloqueio de Anos Futuros e Semestres Indisponíveis
                 if ano_int > ano_atual: continue
                 if ano_int == ano_atual and sem_int == 2 and mes_atual < 8: continue
                 
@@ -258,6 +262,26 @@ class AutomacaoContratos:
                 
             time.sleep(1.0) 
             self._garantir_pastas()
+            
+            # =========================================================================
+            # [SENIOR FIX] CHECK PRÉ-VOO (Fast-Fail Global)
+            # Evita rodar financeiro e consolidação se não houver NENHUM doc válido selecionado.
+            # =========================================================================
+            tarefas_reais = 0
+            for dados in self.semestres_ativos:
+                ano_int = int(dados['label'].split('-')[0])
+                for doc in self.docs_ativos:
+                    if doc['id'] == 'RIAF' and ano_int < 2026:
+                        continue
+                    tarefas_reais += 1
+
+            if tarefas_reais == 0:
+                self.log("⚠️ Nenhuma extração válida para os filtros (ex: RIAF em 2025).", "yellow")
+                self.log("✅ Processo abortado de forma limpa para economizar recursos.", "#A0D468")
+                self.target_progress = 100
+                self.progress = 100
+                self.status_final = "success"
+                return
             
             self.log("⚙️ [SISTEMA] Iniciando módulo de automação com configurações selecionadas...", "white")
             self.update_progress(2)
@@ -335,6 +359,7 @@ class AutomacaoContratos:
         ano_str = nome.split('-')[0]
         ano_int = int(ano_str) if ano_str.isdigit() else 2025
         
+        # Filtra logo de cara o que é válido para não gastar tempo abrindo o Chrome
         docs_para_baixar = []
         for doc in self.docs_ativos:
             if doc['id'] == 'RIAF' and ano_int < 2026:
@@ -343,7 +368,7 @@ class AutomacaoContratos:
             docs_para_baixar.append(doc)
             
         if not docs_para_baixar:
-            self.log(f"✅ [{nome}] Sem documentos válidos para o período.", "#A0D468")
+            # Não faz log extra aqui, já avisou acima. Sai limpo.
             self.update_progress(10)
             return True
 
@@ -568,8 +593,6 @@ class AutomacaoContratos:
         pasta_temp_pgto_local = None
         try:
             if self.stop_event.is_set(): return
-            
-            # [SENIOR FIX] LOG LIMPO: O financeiro é o cérebro (memória), ele baixa calado.
             self.log("⚙️ [Base Auxiliar] Sincronizando histórico financeiro completo...", "gray")
             self.update_progress(2)
             
@@ -625,7 +648,6 @@ class AutomacaoContratos:
             rel_pgto = '//*[@id="cssmenu"]/ul/li[1]/ul/li[2]/a'        
             WebDriverWait(driver, 10).until(EC.element_to_be_clickable((By.XPATH, rel_pgto))).click()
             
-            # [SENIOR FIX] O Financeiro SEMPRE baixa todos os anos para calcular a trajetória corretamente.
             anos_obrigatorios_financeiro = ['2025', '2026']
             for ano in anos_obrigatorios_financeiro:       
                 f_path = os.path.join(DIR_RELATORIO_PAGAMENTOS, ano)
@@ -640,7 +662,7 @@ class AutomacaoContratos:
                 ano_int = int(ano)
                 if ano_int > ano_atual: continue
                 f_path = os.path.join(DIR_RELATORIO_PAGAMENTOS, ano)
-                
+
                 for m in range(1, 13):
                     if self.stop_event.is_set(): break
                     if ano_int == ano_atual and m >= mes_atual: break 
@@ -842,7 +864,6 @@ class AutomacaoContratos:
                 map_flag_ies = df_pag.drop_duplicates('KEY_STR', keep='last').set_index('KEY_STR')['FLAG_IES'].to_dict()
                 map_ant_ies = df_pag.drop_duplicates('KEY_STR', keep='last').set_index('KEY_STR')['ANT_IES'].to_dict()
                 
-                # [SENIOR FIX] Vínculo Ativo sempre verifica o ano vigente (atual) de forma dinâmica.
                 ano_atual_str = str(datetime.datetime.now().year)
                 inscricoes_ativas = set(df_pag[df_pag['SEMESTRE'].astype(str).str.startswith(ano_atual_str)]['K_ID'])
                 if not inscricoes_ativas:
@@ -878,7 +899,6 @@ class AutomacaoContratos:
                     'RIAF': 'RIAF – RESUMO DE INFORMAÇÕES ACADÊMICAS E FINANCEIRAS'
                 }
 
-                # [SENIOR FIX] Impede que semestres não solicitados entrem no arquivo final
                 semestres_validos = [s['label'].replace('-', '/') for s in self.semestres_ativos]
 
                 for doc_type in tipos_ativos:
@@ -918,7 +938,7 @@ class AutomacaoContratos:
                         df_pag_diff['KEY_DIV'] = df_pag_diff['K_ID'] + "_" + df_pag_diff['K_CPF_DIV'] + "_" + df_pag_diff['INS_NOME'] + "_" + df_pag_diff['K_SEM']
                         
                         df_diff_div = df_pag_diff[~df_pag_diff['KEY_DIV'].isin(set_atual_div)].copy()
-                        df_diff_div = df_diff_div[df_diff_div['SEMESTRE'].isin(semestres_validos)] # Filtro Forte
+                        df_diff_div = df_diff_div[df_diff_div['SEMESTRE'].isin(semestres_validos)]
                         
                         if doc_type == 'RIAF':
                             df_diff_div = df_diff_div[df_diff_div['SEMESTRE'].astype(str).str[:4] >= '2026']
@@ -953,7 +973,7 @@ class AutomacaoContratos:
                         atual_existentes = set(df_atual['KEY_EXISTENCIA'])
                         
                         df_diff = df_pag[~df_pag['KEY_STR'].isin(atual_existentes)].copy()
-                        df_diff = df_diff[df_diff['SEMESTRE'].isin(semestres_validos)] # Filtro Forte
+                        df_diff = df_diff[df_diff['SEMESTRE'].isin(semestres_validos)] 
                         
                         if doc_type == 'RIAF':
                             df_diff = df_diff[df_diff['SEMESTRE'].astype(str).str[:4] >= '2026']
@@ -1084,9 +1104,8 @@ class AutomacaoContratos:
         df['uni_codigo'] = df['uni_codigo'].astype(str).str.strip()
         col_id, col_semestre = 'uni_codigo', 'semestre'
         
-        # O esqueleto SQL deve cobrir EXATAMENTE o que o usuário escolheu
         semestres_obrigatorios = [s['label'].replace('-', '/') for s in self.semestres_ativos]
-        if not semestres_obrigatorios: return df
+        if not semestres_obrigatorios: return df 
         
         alunos_unicos = df[col_id].unique()
         index = pd.MultiIndex.from_product([alunos_unicos, semestres_obrigatorios], names=[col_id, col_semestre])
